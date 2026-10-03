@@ -23,7 +23,7 @@ pytest_plugins = "pytest_homeassistant_custom_component"
 
 @pytest.fixture(autouse=True)
 def custom_components_enabled(enable_custom_integrations):
-    """Allow loading the custom config flow and platform."""
+    """Allow loading the custom platform."""
 
 
 @pytest.fixture
@@ -100,3 +100,15 @@ async def coordinator(hass, entry, service_calls):
         await coordinator.async_initialize()
         yield coordinator
         await coordinator.async_shutdown()
+
+
+@pytest.fixture
+async def manager(hass, hass_storage, service_calls):
+    from custom_components.thermo_control.manager import RoomManager
+
+    manager = RoomManager(hass)
+    await manager.async_initialize()
+    hass.data[DOMAIN] = manager
+    await manager.async_bind_platform(lambda entities: None)
+    yield manager
+    await manager.async_shutdown()

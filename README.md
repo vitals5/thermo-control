@@ -1,19 +1,32 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit einem externen Temperatursensor und einem oder mehreren Heizkörperthermostaten. Domain: `thermo_control`, Version: `1.0.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit einem externen Temperatursensor und einem oder mehreren Heizkörperthermostaten. Domain: `thermo_control`, Version: `1.1.0`.
 
-## Installation
+## Installation und Seitenleisten-Panel
 
-Voraussetzung: Home Assistant Core **2026.9 oder neuer**, bereits eingerichtete TRV-Climate-Entitäten, ein Raumtemperatursensor mit Temperatureinheit und optional Zigbee2MQTT/MQTT.
+Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte TRV-Climate-Entitäten und ein externer Raumtemperatursensor. Für MQTT-Kalibrierung muss die MQTT-Integration bereits eingerichtet sein.
 
-1. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren und Home Assistant neu starten. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
-2. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Thermo Control** einen Raum anlegen.
-3. Raumname, physische Thermostate und Raumtemperatursensor auswählen. Ein Thermostat darf nur einem Thermo-Control-Raum zugeordnet sein.
-4. Optional die erweiterten Einstellungen öffnen: Kontakte, Verzögerungen, Kalibrierung und Preset-Sollwerte.
-5. Je TRV die Kalibrierungs-Number-Entität und optional den Ventilpositionssensor auswählen. Eine eindeutige passende Entität am selben HA-Gerät wird automatisch erkannt. Deaktivierte Entitäten zuerst in HA aktivieren.
-6. Die neue Climate-Entität mit `climate.turn_on` einschalten. Ein neuer Raum startet ausgeschaltet; nach Neustarts wird der letzte gewünschte Zustand wiederhergestellt.
+1. Bei einem Update den bisherigen Integrationsordner vollständig durch die neue Version ersetzen, damit entfernte Flow-Dateien nicht zurückbleiben. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
+2. Nur diesen leeren Start-Eintrag in der `configuration.yaml` ergänzen:
 
-Die Optionen der Integration erlauben die Bearbeitung aller Zuordnungen und Sollwerte. Änderungen laden den Raum neu. Leere optionale Zuordnungen entfernen eine explizite Auswahl; anschließend ist automatische Geräteerkennung wieder möglich. Ein leerer Kalibrierungspfad ohne passende Number-Entität deaktiviert die Offset-Schreibvorgänge.
+   ```yaml
+   thermo_control:
+   ```
+
+3. Home Assistant neu starten. In der linken Seitenleiste erscheint **Thermo Control** (`/thermo_control`). Das Panel ist für HA-Administratoren sichtbar.
+4. Im Panel **Raum hinzufügen** wählen. Raumname, Thermostate und Raumtemperatursensor auswählen; Fensterkontakte sind optional.
+5. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
+6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten ausgeschaltet; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
+
+**Es gibt keinen Config Flow und keinen Options Flow.** Der leere YAML-Eintrag lädt lediglich die Integration. Home Assistant lädt eine neue benutzerdefinierte Integration nicht allein durch das Kopieren ihrer Dateien. Keine Raumparameter und keine `panel_custom`-Konfiguration gehören in YAML.
+
+Die Panel-Übersicht zeigt aktuelle Raumtemperatur, Sollwert, Heizstatus, Ventilöffnung und Fensterstatus. Heizung und Presets sind direkt steuerbar. **Konfigurieren** öffnet den Raumeditor; **Raum löschen** entfernt den Raum und seine virtuelle Climate-Entität nach Bestätigung. Physische Thermostate bleiben bestehen und behalten ihren letzten Hardwarezustand. Für ein Abschalten vor dem Entfernen im Panel zuerst **Aus** wählen.
+
+Alle Raumkonfigurationen werden in HA-Storage unter `.storage/thermo_control.rooms` gespeichert. Kalibrierungszeitstempel bleiben je Raum separat gespeichert. Stabile Raum-IDs erhalten die Climate-Entitätszuordnung beim Bearbeiten. Parallele Bearbeitungen werden mit einer Revisionsprüfung erkannt. Schreibfehler verändern eine bereits laufende Raumkonfiguration nicht.
+
+Vorhandene Config-Entry-Räume aus Version 1.0 werden einmalig mit ihren IDs und Einstellungen in den Panel-Speicher übernommen. Es wird dabei kein Flow aufgerufen. Alte Integrationseinträge dienen nur noch der Startkompatibilität und können nach Ergänzen des YAML-Start-Eintrags entfernt werden. Im Panel gelöschte Räume werden aus alten Einträgen nicht erneut importiert.
+
+Leere optionale Zuordnungen entfernen eine explizite Auswahl; anschließend ist automatische Geräteerkennung wieder möglich. Ein leerer Kalibrierungspfad ohne passende Number-Entität deaktiviert die Offset-Schreibvorgänge. Der Raumeditor erlaubt auch die Bearbeitung vorübergehend nicht verfügbarer Sensoren mit bekannter Temperatureinheit.
 
 ## Hardware und Fähigkeiten
 
@@ -117,4 +130,14 @@ uv pip install -r requirements-dev.txt
 .venv/bin/pytest --cov-fail-under=90
 ```
 
-Die Tests verwenden echtes HA Core mit passenden `pytest-homeassistant-custom-component`-Fixtures, HA-State-Machine, Event-Helpern, Config-/Options-Flow und Service-Registry. GitHub Actions prüft stabile Version 2026.9.4, Beta 2026.10.0b0 und die Integrationsmetadaten mit Hassfest. Externe Serviceantworten und Gerätebestätigungen werden simuliert.
+Die Tests verwenden echtes HA Core mit passenden `pytest-homeassistant-custom-component`-Fixtures, HA-State-Machine, Event-Helpern, Raumverwaltung, authentifizierten Panel-WebSockets und Service-Registry. GitHub Actions prüft stabile Version 2026.9.4, Beta 2026.10.0b0 und die Integrationsmetadaten mit Hassfest. Externe Serviceantworten und Gerätebestätigungen werden simuliert.
+
+Die Frontend-Prüfungen verwenden Chromium und simulierte HA-Antworten:
+
+```bash
+npm ci
+npx playwright install --with-deps chromium
+npm run test:panel
+```
+
+Sie prüfen Anlegen, Bearbeiten, Löschen, Live-Anzeige, Heizbefehle, fehlgeschlagenes Speichern, mobile Darstellung und Subscription-Cleanup. Das Panel lädt ausschließlich lokale Dateien und benötigt kein CDN.

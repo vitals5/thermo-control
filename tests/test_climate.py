@@ -1,11 +1,13 @@
 """Climate services and lifecycle including restore before initial commands."""
 
-from unittest.mock import AsyncMock, patch
+import logging
+from datetime import timedelta
 
 import pytest
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import State
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.entity_platform import EntityPlatform
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from custom_components.thermo_control.climate import ThermoControlClimate
@@ -44,7 +46,9 @@ async def test_invalid_mode_and_preset(coordinator):
         await climate.async_set_temperature(temperature=20, hvac_mode="cool")
 
 
-async def test_real_setup_restore_and_unload(hass, entry, service_calls):
+async def test_real_setup_restore_and_unload(hass, room, service_calls, hass_storage):
+    from custom_components.thermo_control.manager import RoomManager
+
     mock_restore_cache(
         hass,
         [
@@ -53,7 +57,6 @@ async def test_real_setup_restore_and_unload(hass, entry, service_calls):
                 "off",
                 {
                     "temperature": 22,
-                    "temperature_unit": "°C",
                     "desired_hvac_mode": "heat",
                     "preset_mode": "none",
                     "manual_temperature": 22,
@@ -61,19 +64,36 @@ async def test_real_setup_restore_and_unload(hass, entry, service_calls):
             )
         ],
     )
-    with (
-        patch(
-            "custom_components.thermo_control.coordinator.Store.async_load",
-            AsyncMock(return_value={"window_blocked": True}),
-        ),
-        patch("custom_components.thermo_control.coordinator.Store.async_save", AsyncMock()),
-    ):
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-        assert (state := hass.states.get("climate.living_room")) is not None
-        assert state.attributes["temperature"] == 22
-        assert state.attributes["desired_hvac_mode"] == "heat"
-        coordinator = entry.runtime_data
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        assert hass.states.get("climate.living_room").state == "unavailable"
-        assert coordinator._closed
+    manager = RoomManager(hass)
+    await manager.async_initialize()
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="climate",
+        platform_name="thermo_control",
+        platform=None,
+        scan_interval=timedelta(seconds=60),
+        entity_namespace=None,
+    )
+
+    def add(entities):
+        hass.async_create_task(platform.async_add_entities(entities))
+
+    await manager.async_bind_platform(add)
+    room_id = await manager.async_save_room(room, 0)
+    await hass.async_block_till_done()
+    entity = manager.entities[room_id]
+    assert (state := hass.states.get("climate.living_room")) is not None
+    assert state.attributes["temperature"] == 22
+    assert state.attributes["desired_hvac_mode"] == "heat"
+    original_id = entity.entity_id
+    await manager.async_save_room({**room, "name": "Renamed"}, 1, room_id)
+    await hass.async_block_till_done()
+    assert manager.entities[room_id].entity_id == original_id
+    assert hass.states.get(original_id).attributes["temperature"] == 22
+    assert entity.coordinator._closed
+    await manager.async_delete_room(room_id, 2)
+    await hass.async_block_till_done()
+    assert hass.states.get("climate.living_room") is None
+    assert entity.coordinator._closed
+    await platform.async_reset()

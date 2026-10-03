@@ -1,32 +1,45 @@
-"""Thermo Control config-entry lifecycle."""
+"""Load the sidebar panel; room setup happens exclusively inside the panel."""
+
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.discovery import async_load_platform
+from homeassistant.helpers.typing import ConfigType
 
-from .const import PLATFORMS
-from .coordinator import ThermoControlCoordinator
+from .const import DOMAIN
+from .manager import RoomManager
+from .panel import async_register_panel
+from .websocket import async_register_commands
 
-type ThermoControlConfigEntry = ConfigEntry[ThermoControlCoordinator]
+CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ThermoControlConfigEntry) -> bool:
-    """Create one coordinator per room; the platform starts it after restoration."""
-    coordinator = ThermoControlCoordinator(hass, entry)
-    await coordinator.async_initialize()
-    entry.runtime_data = coordinator
-    try:
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    except Exception:
-        await coordinator.async_shutdown()
-        raise
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """A single empty YAML key starts Thermo Control without a config flow."""
+    manager = RoomManager(hass)
+    await manager.async_initialize()
+    await manager.async_import_legacy(hass.config_entries.async_entries(DOMAIN))
+    hass.data[DOMAIN] = manager
+    async_register_commands(hass)
+    await async_register_panel(hass, Path(__file__).parent / "frontend")
+    await async_load_platform(hass, "climate", DOMAIN, {}, config)
+
+    async def stop(_: Event) -> None:
+        await manager.async_shutdown()
+
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop)
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ThermoControlConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Compatibility for already existing 1.0 entries; the panel owns their rooms."""
+    entry.runtime_data = hass.data[DOMAIN]
+    return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ThermoControlConfigEntry) -> bool:
-    """Entity removal stops the coordinator and releases every subscription."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Legacy entry removal does not remove a migrated panel configuration."""
+    return True

@@ -1,6 +1,6 @@
 """A room climate entity with persisted intent and external temperature."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -15,18 +15,21 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import ThermoControlConfigEntry
 from .const import CONF_SENSOR, CONF_TRVS, DOMAIN, PRESETS
 from .coordinator import ThermoControlCoordinator
 from .helpers import celsius, finite
 
+if TYPE_CHECKING:
+    from .manager import RoomManager
 
-async def async_setup_entry(
+
+async def async_setup_platform(
     hass: HomeAssistant,
-    entry: ThermoControlConfigEntry,
+    config: dict[str, Any],
     async_add_entities: AddEntitiesCallback,
+    discovery_info: dict[str, Any] | None = None,
 ) -> None:
-    async_add_entities([ThermoControlClimate(entry.runtime_data)])
+    await hass.data[DOMAIN].async_bind_platform(async_add_entities)
 
 
 class ThermoControlClimate(
@@ -34,8 +37,7 @@ class ThermoControlClimate(
 ):
     """Virtual climate; service methods update intent even during an open window."""
 
-    _attr_has_entity_name = True
-    _attr_name = None
+    _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_preset_modes = list(PRESETS)
@@ -47,19 +49,22 @@ class ThermoControlClimate(
         | ClimateEntityFeature.TURN_OFF
     )
 
-    def __init__(self, coordinator: ThermoControlCoordinator) -> None:
+    def __init__(
+        self,
+        coordinator: ThermoControlCoordinator,
+        *,
+        manager: RoomManager | None = None,
+        restore: bool = True,
+    ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = coordinator.entry.entry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, coordinator.entry.entry_id)},
-            "name": coordinator.config["name"],
-            "manufacturer": "Thermo Control",
-            "model": "Virtual room thermostat",
-        }
+        self._attr_name = coordinator.config["name"]
+        self._manager = manager
+        self._restore = restore
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if state := await self.async_get_last_state():
+        if self._restore and (state := await self.async_get_last_state()):
             mode = state.attributes.get("desired_hvac_mode", state.state)
             if mode in self.hvac_modes:
                 self.coordinator.mode = HVACMode(mode)
@@ -78,6 +83,8 @@ class ThermoControlClimate(
             if state.attributes.get("preset_mode") in PRESETS:
                 self.coordinator.preset = state.attributes["preset_mode"]
         await self.coordinator.async_start()
+        if self._manager is not None:
+            self._manager.notify()
 
     async def async_will_remove_from_hass(self) -> None:
         await self.coordinator.async_shutdown()

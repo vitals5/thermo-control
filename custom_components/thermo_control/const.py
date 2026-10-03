@@ -1,14 +1,10 @@
 """Constants for Thermo Control. Temperatures are stored in Celsius."""
 
-from homeassistant.const import Platform
-
 DOMAIN = "thermo_control"
 NAME = "Thermo Control"
-PLATFORMS = [Platform.CLIMATE]
 CONF_TRVS = "trvs"
 CONF_SENSOR = "temperature_sensor"
 CONF_WINDOWS = "window_sensors"
-CONF_ADVANCED = "advanced"
 CONF_DEVICES = "devices"
 CONF_CALIBRATION_ENTITY = "calibration_entity"
 CONF_CALIBRATION_TOPIC = "calibration_topic"

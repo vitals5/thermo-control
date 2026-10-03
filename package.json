@@ -1,0 +1,6 @@
+{
+  "name": "thermo-control-panel-tests",
+  "private": true,
+  "scripts": { "test:panel": "playwright test" },
+  "devDependencies": { "@playwright/test": "1.63.0" }
+}

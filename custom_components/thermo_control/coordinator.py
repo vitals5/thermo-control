@@ -62,6 +62,7 @@ from .helpers import (
     quantize,
     state_temperature,
 )
+from .manager import RoomConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,8 +70,13 @@ _LOGGER = logging.getLogger(__name__)
 class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Serialize intent and side effects; telemetry never overrides room intent."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, _LOGGER, name=DOMAIN, config_entry=entry)
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | RoomConfig) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            config_entry=entry if isinstance(entry, ConfigEntry) else None,
+        )
         self.entry = entry
         self.config = {**DEFAULTS, **entry.data, **entry.options}
         self.trvs: list[str] = self.config[CONF_TRVS]

@@ -8,3 +8,6 @@ htmlcov/
 *.egg-info/
 dist/
 build/
+node_modules/
+test-results/
+playwright-report/
