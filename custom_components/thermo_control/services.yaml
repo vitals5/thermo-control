@@ -1,0 +1,4 @@
+# Thermo Control exposes standard climate services only:
+# climate.set_temperature, climate.set_hvac_mode, climate.set_preset_mode,
+# climate.turn_on and climate.turn_off. No separate domain services are needed.
+{}

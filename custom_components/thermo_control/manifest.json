@@ -1,0 +1,13 @@
+{
+  "domain": "thermo_control",
+  "name": "Thermo Control",
+  "codeowners": ["@vitals5"],
+  "config_flow": true,
+  "dependencies": ["climate", "number"],
+  "documentation": "https://github.com/vitals5/thermo-control",
+  "integration_type": "helper",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/vitals5/thermo-control/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

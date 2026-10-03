@@ -1,0 +1,135 @@
+{
+  "title": "Thermo Control",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Raum einrichten",
+        "description": "Thermostate und externen Temperatursensor für einen Raum auswählen.",
+        "data": {
+          "name": "Raumname",
+          "trvs": "Heizkörperthermostate",
+          "temperature_sensor": "Raumtemperatursensor",
+          "advanced": "Kontakte, Presets und Kalibrierung konfigurieren"
+        }
+      },
+      "advanced": {
+        "title": "Raumregelung",
+        "description": "Alle Kontakte müssen geschlossen sein, bevor die Heizung wieder startet. Ein Kalibrierungsintervall von mindestens 300 Sekunden wird immer eingehalten.",
+        "data": {
+          "window_sensors": "Fenster- und Türkontakte (oder Kontaktgruppen)",
+          "tolerance": "Hysterese für den Heizstatus",
+          "calibration_interval": "Mindestintervall der Kalibrierung",
+          "calibration_threshold": "Mindeständerung des Offsets",
+          "window_open_delay": "Verzögerung bis zum Abschalten",
+          "window_close_delay": "Verzögerung bis zur Wiederherstellung",
+          "frost_temperature": "Frostschutz-Sollwert als Fallback",
+          "preset_none": "Manueller Standard-Sollwert",
+          "preset_eco": "Eco-Sollwert",
+          "preset_comfort": "Komfort-Sollwert",
+          "preset_boost": "Boost-Sollwert",
+          "preset_away": "Abwesenheits-Sollwert"
+        }
+      },
+      "device": {
+        "title": "Thermostat konfigurieren",
+        "description": "Einstellungen für {thermostat}. Leere Kalibrierungsfelder erlauben die automatische Erkennung einer passenden Number-Entität am gleichen Gerät. MQTT benötigt einen bekannten Offset im Climate-Attribut.",
+        "data": {
+          "calibration_entity": "Number-Entität für die Kalibrierung",
+          "calibration_topic": "MQTT-Kalibrierungstopic (alternativ zur Number-Entität)",
+          "position_entity": "Sensor für die Ventilposition",
+          "internal_sensor": "Interner Temperatursensor (optional)",
+          "temperature_is_calibrated": "Interne Temperatur enthält den Kalibrierungsoffset bereits",
+          "regulated_mode": "Regelnder HVAC-Modus des Thermostats",
+          "calibration_min": "Minimaler Kalibrierungsoffset",
+          "calibration_max": "Maximaler Kalibrierungsoffset",
+          "calibration_step": "Schrittweite des Kalibrierungsoffsets"
+        },
+        "data_description": {
+          "calibration_topic": "Beispiel: zigbee2mqtt/wohnzimmer/set/local_temperature_calibration",
+          "temperature_is_calibrated": "Deaktivieren, wenn der interne Sensor eine unkalibrierte Rohmessung liefert.",
+          "regulated_mode": "TV01/TV02 verwenden heat. Für Geräte, deren heat-Modus das Ventil dauerhaft öffnet, auto wählen."
+        }
+      }
+    },
+    "error": {
+      "name_required": "Bitte einen Raumnamen eingeben.",
+      "invalid_trvs": "Verschiedene, registrierte physische Climate-Entitäten auswählen.",
+      "invalid_sensor": "Temperatursensor mit gültigem Messwert und Temperatureinheit auswählen.",
+      "trv_in_use": "Ein Thermostat ist bereits einem anderen Raum zugeordnet.",
+      "invalid_windows": "Ein ausgewählter Kontakt existiert nicht.",
+      "ambiguous_calibration": "Entweder eine Number-Entität oder ein MQTT-Topic auswählen.",
+      "invalid_topic": "Vollständiges Topic mit /set/local_temperature_calibration am Ende und ohne MQTT-Platzhalter eingeben.",
+      "invalid_bounds": "Der minimale Offset muss kleiner als der maximale sein.",
+      "unsupported_mode": "Dieser HVAC-Modus wird vom Thermostat nicht unterstützt.",
+      "invalid_entity": "Die ausgewählte Entität existiert nicht oder hat die falsche Domain.",
+      "mqtt_unavailable": "Vor der MQTT-Kalibrierung die MQTT-Integration einrichten.",
+      "unsupported_temperature": "Dieser Sollwert liegt außerhalb des unterstützten Temperaturbereichs eines Thermostats."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Raum bearbeiten",
+        "description": "Thermostate und externen Temperatursensor für einen Raum auswählen.",
+        "data": {
+          "name": "Raumname",
+          "trvs": "Heizkörperthermostate",
+          "temperature_sensor": "Raumtemperatursensor",
+          "advanced": "Kontakte, Presets und Kalibrierung konfigurieren"
+        }
+      },
+      "advanced": {
+        "title": "Raumregelung",
+        "description": "Alle Kontakte müssen geschlossen sein, bevor die Heizung wieder startet. Ein Kalibrierungsintervall von mindestens 300 Sekunden wird immer eingehalten.",
+        "data": {
+          "window_sensors": "Fenster- und Türkontakte (oder Kontaktgruppen)",
+          "tolerance": "Hysterese für den Heizstatus",
+          "calibration_interval": "Mindestintervall der Kalibrierung",
+          "calibration_threshold": "Mindeständerung des Offsets",
+          "window_open_delay": "Verzögerung bis zum Abschalten",
+          "window_close_delay": "Verzögerung bis zur Wiederherstellung",
+          "frost_temperature": "Frostschutz-Sollwert als Fallback",
+          "preset_none": "Manueller Standard-Sollwert",
+          "preset_eco": "Eco-Sollwert",
+          "preset_comfort": "Komfort-Sollwert",
+          "preset_boost": "Boost-Sollwert",
+          "preset_away": "Abwesenheits-Sollwert"
+        }
+      },
+      "device": {
+        "title": "Thermostat konfigurieren",
+        "description": "Einstellungen für {thermostat}. Leere Kalibrierungsfelder erlauben die automatische Erkennung einer passenden Number-Entität am gleichen Gerät. MQTT benötigt einen bekannten Offset im Climate-Attribut.",
+        "data": {
+          "calibration_entity": "Number-Entität für die Kalibrierung",
+          "calibration_topic": "MQTT-Kalibrierungstopic (alternativ zur Number-Entität)",
+          "position_entity": "Sensor für die Ventilposition",
+          "internal_sensor": "Interner Temperatursensor (optional)",
+          "temperature_is_calibrated": "Interne Temperatur enthält den Kalibrierungsoffset bereits",
+          "regulated_mode": "Regelnder HVAC-Modus des Thermostats",
+          "calibration_min": "Minimaler Kalibrierungsoffset",
+          "calibration_max": "Maximaler Kalibrierungsoffset",
+          "calibration_step": "Schrittweite des Kalibrierungsoffsets"
+        },
+        "data_description": {
+          "calibration_topic": "Beispiel: zigbee2mqtt/wohnzimmer/set/local_temperature_calibration",
+          "temperature_is_calibrated": "Deaktivieren, wenn der interne Sensor eine unkalibrierte Rohmessung liefert.",
+          "regulated_mode": "TV01/TV02 verwenden heat. Für Geräte, deren heat-Modus das Ventil dauerhaft öffnet, auto wählen."
+        }
+      }
+    },
+    "error": {
+      "name_required": "Bitte einen Raumnamen eingeben.",
+      "invalid_trvs": "Verschiedene, registrierte physische Climate-Entitäten auswählen.",
+      "invalid_sensor": "Temperatursensor mit gültigem Messwert und Temperatureinheit auswählen.",
+      "trv_in_use": "Ein Thermostat ist bereits einem anderen Raum zugeordnet.",
+      "invalid_windows": "Ein ausgewählter Kontakt existiert nicht.",
+      "ambiguous_calibration": "Entweder eine Number-Entität oder ein MQTT-Topic auswählen.",
+      "invalid_topic": "Vollständiges Topic mit /set/local_temperature_calibration am Ende und ohne MQTT-Platzhalter eingeben.",
+      "invalid_bounds": "Der minimale Offset muss kleiner als der maximale sein.",
+      "unsupported_mode": "Dieser HVAC-Modus wird vom Thermostat nicht unterstützt.",
+      "invalid_entity": "Die ausgewählte Entität existiert nicht oder hat die falsche Domain.",
+      "mqtt_unavailable": "Vor der MQTT-Kalibrierung die MQTT-Integration einrichten.",
+      "unsupported_temperature": "Dieser Sollwert liegt außerhalb des unterstützten Temperaturbereichs eines Thermostats."
+    }
+  }
+}
