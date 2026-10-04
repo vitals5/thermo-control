@@ -500,8 +500,8 @@ for (const [width, font] of [[320, "system-ui"], [390, "system-ui"], [1280, "sys
         gap: getComputedStyle(grid).gap,
         positions: tiles.map((tile) => ({ x: tile.getBoundingClientRect().x, y: tile.getBoundingClientRect().y })),
         buttons: [...grid.querySelectorAll(".target-stepper button")].map((button) => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })),
-        targetsFit: [...grid.querySelectorAll(".target-input")].every((input) => input.scrollWidth <= input.clientWidth),
-        pills: tiles.map((tile) => ({ parts: tile.querySelector(".target-stepper").children.length, width: tile.querySelector(".target-stepper").getBoundingClientRect().width, available: tile.clientWidth - 20 })),
+        targetsFit: [...grid.querySelectorAll(".target-input")].filter((input) => input.scrollWidth > input.clientWidth).map((input) => ({ value: input.value, width: input.clientWidth, scrollWidth: input.scrollWidth, font: getComputedStyle(input).font })),
+        pills: tiles.map((tile) => ({ parts: tile.querySelector(".target-stepper").children.length, width: tile.querySelector(".target-stepper").getBoundingClientRect().width, available: tile.clientWidth })),
         overflow: [root.host, root.querySelector("main"), grid, ...tiles, ...grid.querySelectorAll(".measure,.eyebrow")].filter((node) => node.scrollWidth > node.clientWidth).map((node) => ({ className: node.className, width: node.clientWidth, scrollWidth: node.scrollWidth })),
         heating: tiles.every((tile) => tile.classList.contains("heating")),
         border: getComputedStyle(tiles[0]).borderColor,
@@ -512,7 +512,7 @@ for (const [width, font] of [[320, "system-ui"], [390, "system-ui"], [1280, "sys
     expect(geometry.positions[0].y).toBe(geometry.positions[1].y);
     expect(geometry.positions[0].x).not.toBe(geometry.positions[1].x);
     expect(geometry.overflow).toEqual([]);
-    expect(geometry.targetsFit).toBe(true);
+    expect(geometry.targetsFit).toEqual([]);
     expect(geometry.heating).toBe(true);
     for (const button of geometry.buttons) { expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44); }
     for (const pill of geometry.pills) { expect(pill.parts).toBe(3); expect(Math.abs(pill.width - pill.available)).toBeLessThan(1); }

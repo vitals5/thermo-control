@@ -731,6 +731,7 @@ class ThermoControlPanel extends HTMLElement {
       .room-tile .help { overflow-wrap: anywhere; }
       .room-tile .control-preview { margin-top: 8px; font-size: 10px; }
       .target-stepper { display: grid; grid-template-columns: minmax(44px, 1fr) minmax(0, 1.2fr) minmax(44px, 1fr); gap: 0; width: 100%; margin-top: 12px; border: 1px solid var(--divider-color, rgba(255,255,255,.08)); border-radius: 999px; background: var(--card-background-color, #29292c); color: var(--primary-text-color, #f5f5f7); overflow: hidden; }
+      .room-tile .target-stepper { width: calc(100% + 20px); margin-left: -10px; }
       .target-stepper button { min-width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 24px; touch-action: manipulation; }
       .target-stepper button:hover { background: var(--divider-color, rgba(255,255,255,.08)); }
       .target-stepper button:disabled { cursor: default; }
@@ -740,7 +741,7 @@ class ThermoControlPanel extends HTMLElement {
       .target-unit { font-size: 18px; font-weight: 650; }
       .target-stepper :focus-visible { outline-offset: -3px; }
       @media(max-width:650px) { .room-tile .metrics { grid-template-columns: minmax(0, 1fr); gap: 6px; } .room-tile .metric { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; } .room-tile .metric strong { margin-top: 0; } .master label { overflow-wrap: anywhere; } }
-      @media(max-width:360px) { main { padding-left: 8px; padding-right: 8px; } .target-display .target-input, .target-unit { font-size: 12px; } }
+      @media(max-width:360px) { main { padding-left: 8px; padding-right: 8px; } .target-display .target-input, .target-unit { font-size: 14px; } }
     `; root.append(style);
     const system = create("section", undefined, "system-bar"); system.id = "system-bar"; system.setAttribute("aria-label", "Wärmepumpenstatus"); main.prepend(system);
     const tabs = create("nav", undefined, "tabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Thermo Control Bereiche"); system.after(tabs);
