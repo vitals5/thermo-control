@@ -234,6 +234,154 @@ class ThermoControlEntityPicker extends HTMLElement {
   close() { this._opened = false; this._active = -1; this._input.removeAttribute("aria-activedescendant"); this._list.hidden = true; this._input.setAttribute("aria-expanded", "false"); }
 }
 
+const SCHEDULE_DAYS = { monday: "Mo", tuesday: "Di", wednesday: "Mi", thursday: "Do", friday: "Fr", saturday: "Sa", sunday: "So" };
+const CLIMATE_PRESETS = { ...PRESETS, schedule: "Auto · Zeitplan" };
+
+class ThermoControlScheduleEditor extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: "open" }); this._drafts = new Map(); this._days = ["monday"]; this._dirty = false; }
+  connectedCallback() { if (!this.shadowRoot.hasChildNodes()) this._build(); if (this._context) this._refresh(); }
+  set context(value) { this._context = value; if (this.isConnected) this._refresh(); }
+  _owners() { return [...(this._context?.data.rooms || []).map((room) => ({ key: `room:${room.id}`, name: room.config.name })), ...(this._context?.data.settings.groups || []).map((group) => ({ key: `group:${group.id}`, name: `Gruppe: ${group.name}` }))]; }
+  _plan(key) { return (this._context.data.schedules || []).find((plan) => (plan.room_id ? `room:${plan.room_id}` : `group:${plan.group_id}`) === key); }
+  _refresh() {
+    const owners = this._owners(), fingerprint = JSON.stringify(owners), select = this.shadowRoot.querySelector("#owner");
+    if (fingerprint !== this._ownersFingerprint) {
+      this._ownersFingerprint = fingerprint; select.replaceChildren();
+      for (const owner of owners) { const option = create("option", owner.name); option.value = owner.key; select.append(option); }
+      if (owners.some((owner) => owner.key === this._owner)) select.value = this._owner;
+      else { this._owner = select.value; this._dirty = false; }
+    }
+    this.shadowRoot.querySelector("#schedule-empty").hidden = Boolean(owners.length);
+    this.shadowRoot.querySelector("#schedule-editor").hidden = !owners.length;
+    const version = JSON.stringify([this._context.data.schedule_revision, this._owner, this._context.data.schedules]);
+    if (version !== this._version && !this._dirty && !this._editing && !this._saving) { this._version = version; this._load(this._owner); }
+    this.shadowRoot.querySelector("#zone").textContent = `Zeitzone: ${this._context.data.time_zone || this._context.hass.config?.time_zone || "Home Assistant"}`;
+    this.shadowRoot.querySelector("#copy").disabled = this._dirty || !this._plan(this._owner) || this._saving;
+  }
+  selectOwner(key) { const select = this.shadowRoot.querySelector("#owner"); this._remember(); this._owner = key; select.value = key; this._load(key); }
+  _remember() { if (this._owner && this._draft) this._drafts.set(this._owner, { draft: structuredClone(this._draft), revision: this._revision, dirty: this._dirty }); }
+  _load(key) {
+    if (!key) return;
+    const cached = this._drafts.get(key);
+    this._draft = cached?.dirty ? structuredClone(cached.draft) : structuredClone(this._plan(key) || { [key.startsWith("room:") ? "room_id" : "group_id"]: key.split(":")[1], enabled: false, weekdays: Object.fromEntries(Object.keys(SCHEDULE_DAYS).map((day) => [day, []])), fallback_temp: 18, override_hours: 0, preheat: false, heating_rate: 0.5, max_preheat_minutes: 180 });
+    this._revision = cached?.dirty ? cached.revision : this._context.data.schedule_revision || 0;
+    this._dirty = Boolean(cached?.dirty); this._editing = false;
+    const form = this.shadowRoot.querySelector("#plan-form");
+    for (const key of ["enabled", "fallback_temp", "override_hours", "preheat", "heating_rate", "max_preheat_minutes"]) {
+      const field = form.elements[key]; if (field.type === "checkbox") field.checked = Boolean(this._draft[key]); else field.value = this._draft[key];
+    }
+    const profiles = this.shadowRoot.querySelector("#profile"); profiles.replaceChildren();
+    const blank = create("option", "Vorlage wählen"); blank.value = ""; profiles.append(blank);
+    for (const [id, profile] of Object.entries(this._context.data.schedule_templates || {})) { const option = create("option", profile.name); option.value = id; profiles.append(option); }
+    this.shadowRoot.querySelector("#block-form").hidden = true; this._draw();
+  }
+  _build() {
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;color:var(--primary-text-color,#23312d)}*{box-sizing:border-box}section{padding:20px;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#dde5de);border-radius:14px}h2{margin:0 0 16px;font-size:20px}p{font-size:13px;line-height:1.5}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}label{display:flex;flex-direction:column;gap:6px;font-size:13px;min-width:0}input,select,button{font:inherit;color:inherit;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#d4ded5);border-radius:8px;min-height:44px;padding:8px;width:100%;min-width:0}button{cursor:pointer;width:auto}button:disabled{opacity:.5;cursor:default}.checkbox{display:flex;flex-direction:row;align-items:center;margin:16px 0}.checkbox input{width:20px;min-height:20px}.days,.actions{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0}.days [aria-pressed=true],.primary{background:var(--primary-color,#287757);color:white}.timeline{position:relative;height:70px;border:1px dashed var(--divider-color,#ddd);border-radius:8px;overflow:hidden;background:var(--secondary-background-color,#eef3ef);margin-top:20px}.timeline button{position:absolute;top:0;height:100%;padding:4px 1px;border-radius:0;overflow:hidden;color:#fff;white-space:nowrap;font-size:12px}.axis{display:flex;justify-content:space-between;font-size:11px;margin-top:6px}.blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:16px 0}.blocks button{text-align:left;white-space:normal}.help{color:var(--secondary-text-color,#69786e)}[role=alert]{color:var(--error-color,#ae4933);overflow-wrap:anywhere}#block-form{padding:14px;border:1px solid var(--divider-color,#ddd);border-radius:10px;margin:16px 0}dialog{max-width:600px;width:calc(100% - 32px);max-height:85vh;overflow:auto;background:var(--card-background-color,#fff);color:inherit;border:1px solid var(--divider-color,#ddd);border-radius:14px;padding:20px}dialog::backdrop{background:#0006}select[multiple]{min-height:150px}[hidden]{display:none!important}@media(max-width:600px){section{padding:14px}.fields{grid-template-columns:minmax(0,1fr)}.blocks{grid-template-columns:minmax(0,1fr)}}
+      </style><section><h2>Wochenzeitpläne</h2><label>Raum oder Gruppe<select id="owner"></select></label><p id="schedule-empty">Lege zuerst einen Raum oder eine Gruppe an.</p><div id="schedule-editor"><p class="help" id="zone"></p><p class="help">Auto · Zeitplan steuert Thermo Control in Heizen. Geräte-Auto verwendet weiterhin den eigenen Thermostatzeitplan. Raumpläne haben Vorrang vor Gruppenplänen.</p><form id="plan-form"><label class="checkbox"><input name="enabled" type="checkbox">Automatikmodus aktiv</label><div class="fields"><label>Vorlage<select id="profile"></select></label><label>Sollwert für Zeitlücken (°C)<input name="fallback_temp" type="number" min="5" max="30" step="0.5" required></label><label>Manueller Override (Stunden; 0 = nächster Schaltpunkt)<input name="override_hours" type="number" min="0" max="48" step="0.5" required></label><label class="checkbox"><input name="preheat" type="checkbox">Vorausschauendes Vorheizen bei FBH</label><label>Aufheizkoeffizient (°C pro Stunde)<input name="heating_rate" type="number" min="0.1" max="5" step="0.1" required></label><label>Maximales Vorheizen (Minuten)<input name="max_preheat_minutes" type="number" min="0" max="360" step="1" required></label></div><p class="help">Vorheizen berücksichtigt Raumtemperatur und die maximale Vorlaufzeit des Raums. Nachtblöcke dürfen über Mitternacht reichen; 24:00 bezeichnet das Tagesende.</p><div class="days" id="days" role="group" aria-label="Tagesauswahl"></div><p class="help" id="day-note"></p><div class="timeline" id="timeline" aria-label="24-Stunden-Zeitachse"></div><div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><div class="blocks" id="blocks"></div><button type="button" id="add">+ Block hinzufügen</button><div class="actions"><button type="submit" class="primary">Zeitplan speichern</button><button type="button" id="copy">Plan auf andere Räume übertragen</button><button type="button" id="reset">Gespeicherten Plan laden</button></div></form><form id="block-form" hidden><h3 id="block-title">Zeitblock bearbeiten</h3><div class="fields"><label>Startzeit<input name="from" type="time" required></label><label>Endzeit<input name="to" type="text" placeholder="HH:MM oder 24:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00" required></label><label>Block-Sollwert (°C)<input name="temp" type="number" min="5" max="30" step="0.5" required></label></div><div class="actions"><button type="submit">Block übernehmen</button><button type="button" id="delete-block">Block löschen</button><button type="button" id="cancel-block">Abbrechen</button></div></form><p id="message" role="alert"></p></div></section><dialog id="copy-dialog"><h2>Zeitplan kopieren</h2><label>Kopierumfang<select id="copy-kind"><option value="week">Gesamte Woche</option><option value="day">Ausgewählter Tag</option></select></label><label>Zielräume und Gruppen<select id="copy-targets" multiple></select></label><label id="copy-days-label" hidden>Zieltage<select id="copy-days" multiple></select></label><p class="help">Neue Wochenkopien sind deaktiviert. Tageskopien erhalten die Aktivierung des Zielplans. Einzelpläne haben Vorrang vor Gruppenplänen.</p><div class="actions"><button id="confirm-copy">Kopieren</button><button id="cancel-copy">Abbrechen</button></div><p id="copy-error" role="alert"></p></dialog>`;
+    const root = this.shadowRoot;
+    for (const select of root.querySelectorAll("select")) select.setAttribute("aria-label", select.closest("label").firstChild.textContent.trim());
+    root.querySelector("#owner").onchange = (event) => this.selectOwner(event.target.value);
+    root.querySelector("#plan-form").oninput = (event) => {
+      const field = event.target;
+      if (!field.name) return;
+      this._draft[field.name] = field.type === "checkbox" ? field.checked : Number(field.value);
+      this._changed();
+    };
+    root.querySelector("#plan-form").onsubmit = (event) => { event.preventDefault(); this._save(); };
+    root.querySelector("#profile").onchange = (event) => {
+      const template = this._context.data.schedule_templates?.[event.target.value]; if (!template) return;
+      this._draft.weekdays = structuredClone(template.weekdays); this._changed(); this._draw();
+    };
+    for (const [title, days] of [["Mo–Fr", Object.keys(SCHEDULE_DAYS).slice(0, 5)], ["Sa–So", Object.keys(SCHEDULE_DAYS).slice(5)], ...Object.entries(SCHEDULE_DAYS).map(([day, title]) => [title, [day]])]) {
+      const button = create("button", title); button.type = "button"; button.dataset.days = days.join(","); button.onclick = () => { this._days = days; root.querySelector("#block-form").hidden = true; this._draw(); }; root.querySelector("#days").append(button);
+    }
+    root.querySelector("#add").onclick = () => this._edit(-1);
+    root.querySelector("#block-form").onsubmit = (event) => { event.preventDefault(); this._acceptBlock(); };
+    root.querySelector("#cancel-block").onclick = () => { this._editing = false; root.querySelector("#block-form").hidden = true; this._refresh(); };
+    root.querySelector("#delete-block").onclick = () => {
+      const blocks = structuredClone(this._draft.weekdays[this._days[0]] || []); blocks.splice(this._blockIndex, 1); this._setBlocks(blocks);
+    };
+    root.querySelector("#reset").onclick = () => { this._drafts.delete(this._owner); this._load(this._owner); this._message(""); };
+    root.querySelector("#copy").onclick = () => this._openCopy();
+    root.querySelector("#copy-kind").onchange = () => this._copyChoices();
+    root.querySelector("#cancel-copy").onclick = () => root.querySelector("#copy-dialog").close();
+    root.querySelector("#confirm-copy").onclick = () => this._copy();
+  }
+  _changed() { this._dirty = true; this._remember(); this.shadowRoot.querySelector("#copy").disabled = true; this._message("Ungespeicherte Änderungen."); }
+  _message(text) { this.shadowRoot.querySelector("#message").textContent = text; }
+  _minute(value) { const [hour, minute] = value.split(":").map(Number); return hour * 60 + minute; }
+  _draw() {
+    const root = this.shadowRoot, day = this._days[0], blocks = this._draft.weekdays[day] || [];
+    for (const button of root.querySelectorAll("#days button")) button.setAttribute("aria-pressed", String(button.dataset.days === this._days.join(",")));
+    root.querySelector("#day-note").textContent = this._days.length > 1 ? `Anzeige ${SCHEDULE_DAYS[day]}; Blockänderungen gelten für ${this._days.map((key) => SCHEDULE_DAYS[key]).join(", ")}.` : SCHEDULE_DAYS[day];
+    const timeline = root.querySelector("#timeline"), list = root.querySelector("#blocks"); timeline.replaceChildren(); list.replaceChildren();
+    const render = (block, index, sourceDay, start, end, carry = false) => {
+      const button = create("button", `${block.temp}°`); button.type = "button";
+      button.setAttribute("aria-label", `${carry ? "Nachtblock " : "Zeitblock "}${block.from} bis ${block.to}, ${block.temp} °C`);
+      button.title = button.getAttribute("aria-label");
+      button.style.left = `${start / 14.4}%`; button.style.width = `${(end - start) / 14.4}%`;
+      button.style.background = block.temp < 20 ? "#397bbc" : block.temp < 22 ? "#bf832b" : "#c46536";
+      button.onclick = () => { if (carry) this._days = [sourceDay]; this._draw(); this._edit(index); };
+      timeline.append(button);
+    };
+    blocks.forEach((block, index) => {
+      const start = this._minute(block.from), end = this._minute(block.to);
+      render(block, index, day, start, end < start ? 1440 : end);
+      const button = create("button", `${block.from}–${block.to} · ${block.temp.toFixed(1)} °C${end < start ? " · Folgetag" : ""}`); button.type = "button"; button.onclick = () => this._edit(index); list.append(button);
+    });
+    const names = Object.keys(SCHEDULE_DAYS), previous = names[(names.indexOf(day) + 6) % 7];
+    (this._draft.weekdays[previous] || []).forEach((block, index) => { const start = this._minute(block.from), end = this._minute(block.to); if (end < start && end > 0) render(block, index, previous, 0, end, true); });
+  }
+  _edit(index) {
+    this._editing = true;
+    this._blockIndex = index; const form = this.shadowRoot.querySelector("#block-form");
+    const block = index < 0 ? { from: "08:00", to: "09:00", temp: 21.5 } : this._draft.weekdays[this._days[0]][index];
+    for (const key of ["from", "to", "temp"]) form.elements[key].value = block[key];
+    form.hidden = false; this.shadowRoot.querySelector("#delete-block").hidden = index < 0; form.elements.from.focus();
+  }
+  _acceptBlock() {
+    const form = this.shadowRoot.querySelector("#block-form"); if (!form.reportValidity()) return;
+    const block = { from: form.elements.from.value, to: form.elements.to.value, temp: Number(form.elements.temp.value) };
+    if (block.from === block.to) { this._message("Start und Ende müssen unterschiedlich sein."); return; }
+    const blocks = structuredClone(this._draft.weekdays[this._days[0]] || []);
+    if (this._blockIndex < 0) blocks.push(block); else blocks[this._blockIndex] = block;
+    blocks.sort((a, b) => a.from.localeCompare(b.from)); this._setBlocks(blocks);
+  }
+  _setBlocks(blocks) { this._editing = false; for (const day of this._days) this._draft.weekdays[day] = structuredClone(blocks); this.shadowRoot.querySelector("#block-form").hidden = true; this._changed(); this._draw(); }
+  async _save() {
+    if (this._saving) return;
+    if (!this.shadowRoot.querySelector("#block-form").hidden) { this._message("Den geöffneten Block zuerst übernehmen oder abbrechen."); return; }
+    this._saving = true;
+    for (const field of this.shadowRoot.querySelectorAll("input,select,button")) field.disabled = true;
+    const owner = this._owner, plan = structuredClone(this._draft), revision = this._revision;
+    try {
+      const result = await this._context.hass.callWS({ type: "thermo_control/save_schedule", schedule: plan, revision });
+      this._dirty = false; this._drafts.delete(owner);
+      if (result) this.dispatchEvent(new CustomEvent("schedules-updated", { detail: result, bubbles: true, composed: true }));
+      this._version = null; this._refresh(); this._message("Zeitplan gespeichert.");
+    } catch (error) { this._message(error.message || String(error)); }
+    finally { this._saving = false; for (const field of this.shadowRoot.querySelectorAll("input,select,button")) field.disabled = false; this._refresh(); }
+  }
+  _openCopy() { this._copyChoices(); this.shadowRoot.querySelector("#copy-error").textContent = ""; this.shadowRoot.querySelector("#copy-dialog").showModal(); }
+  _copyChoices() {
+    const root = this.shadowRoot, day = root.querySelector("#copy-kind").value === "day", targets = root.querySelector("#copy-targets"); targets.replaceChildren();
+    for (const owner of this._owners()) { if (!day && owner.key === this._owner) continue; const option = create("option", owner.name); option.value = owner.key; option.selected = day && owner.key === this._owner; targets.append(option); }
+    root.querySelector("#copy-days-label").hidden = !day;
+    const days = root.querySelector("#copy-days"); days.replaceChildren();
+    for (const [id, title] of Object.entries(SCHEDULE_DAYS)) { const option = create("option", title); option.value = id; option.selected = id !== this._days[0]; days.append(option); }
+  }
+  async _copy() {
+    const root = this.shadowRoot, button = root.querySelector("#confirm-copy"); if (button.disabled) return; button.disabled = true;
+    const message = { type: "thermo_control/copy_schedule", source: this._owner, targets: [...root.querySelector("#copy-targets").selectedOptions].map((option) => option.value), revision: this._context.data.schedule_revision || 0 };
+    if (root.querySelector("#copy-kind").value === "day") Object.assign(message, { source_day: this._days[0], target_days: [...root.querySelector("#copy-days").selectedOptions].map((option) => option.value) });
+    try { const result = await this._context.hass.callWS(message); if (result) this.dispatchEvent(new CustomEvent("schedules-updated", { detail: result, bubbles: true, composed: true })); root.querySelector("#copy-dialog").close(); this._message("Zeitplan kopiert. Wochenkopien sind zunächst deaktiviert."); }
+    catch (error) { root.querySelector("#copy-error").textContent = error.message || String(error); }
+    finally { button.disabled = false; }
+  }
+}
+customElements.define("thermo-control-schedule-editor", ThermoControlScheduleEditor);
+
 class ThermoControlPanel extends HTMLElement {
   constructor() {
     super();
@@ -313,6 +461,7 @@ class ThermoControlPanel extends HTMLElement {
     if (changed) { this._renderCards(); this._renderAssignments(); this._renderGroupCards(); this._graphChoices(); }
     else this._updateCards();
     this._updateSystem();
+    this._updateScheduleEditor();
     this._updatePickers();
     this.shadowRoot.querySelector("#connection").textContent = "Mit Home Assistant verbunden";
     this.shadowRoot.querySelector("#add-room").disabled = false;
@@ -328,7 +477,7 @@ class ThermoControlPanel extends HTMLElement {
         .error{border:1px solid #d89e91;background:var(--card-background-color,#fff);color:var(--error-color,#ae4933);border-radius:9px;padding:13px 16px;margin-bottom:20px}.error:empty{display:none}dialog{border:1px solid var(--divider-color,#d4ded5);border-radius:16px;background:var(--card-background-color,#fff);color:inherit;padding:0;max-width:850px;width:calc(100% - 32px);max-height:90vh;box-shadow:0 25px 80px #0003}dialog::backdrop{background:#10261b66}.dialog-header{display:flex;justify-content:space-between;align-items:center;padding:23px 26px;border-bottom:1px solid var(--divider-color,#dde5de)}.dialog-header p{font-size:12px;margin-top:6px}.dialog-body{padding:25px 26px;max-height:65vh;overflow:auto}.fields{display:grid;grid-template-columns:1fr 1fr;gap:20px}.wide{grid-column:1/-1}.help{font-size:11px;line-height:1.5;font-weight:400;color:var(--secondary-text-color,#69786e)}details{border:1px solid var(--divider-color,#dce4dd);border-radius:10px;margin-top:24px;padding:16px}summary{cursor:pointer;font-size:14px;font-weight:600}details .fields{margin-top:20px}.device{margin-top:22px}.device h3{font-size:14px;margin:0 0 16px}.checkbox{flex-direction:row;align-items:center;font-size:12px;font-weight:400}.dialog-footer{display:flex;justify-content:flex-end;align-items:center;gap:10px;border-top:1px solid var(--divider-color,#dde5de);padding:16px 26px}.danger{color:var(--error-color,#b4523d);margin-right:auto}.confirm{padding:24px}.confirm p{margin:16px 0 24px}.confirm-actions{display:flex;justify-content:flex-end;gap:10px}.saving{font-size:12px;color:var(--secondary-text-color,#69786e)}[hidden]{display:none!important}
         @media(max-width:650px){main{padding:24px 16px}.toolbar{padding:12px 16px}.menu{display:block}.brand{display:none}.intro{align-items:flex-start}h1{font-size:26px}.intro p{font-size:13px}.intro button{white-space:nowrap;padding:9px 11px;font-size:12px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.dialog-body{padding:20px 18px}.dialog-header,.dialog-footer{padding:16px 18px}.wide{grid-column:auto}.version{font-size:11px}}
       </style>
-      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.0.4</span></header>
+      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.1.0</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div><button class="primary" id="add-room" disabled>+ Raum hinzufügen</button></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
@@ -379,6 +528,9 @@ class ThermoControlPanel extends HTMLElement {
       card.querySelector(".edit").onclick = () => this._openEditor(room);
       card.querySelector(".trv-count").textContent = String(room.config.trvs.length);
       card.append(this._climateControls(room.entity_id));
+      const scheduleRow = create("div", undefined, "schedule-indicator"), scheduleButton = create("button", undefined, "schedule-toggle"), scheduleIcon = document.createElement("ha-icon");
+      scheduleButton.type = "button"; scheduleButton.setAttribute("aria-label", `${room.config.name}: Zeitplan umschalten`); scheduleIcon.setAttribute("icon", "mdi:calendar-check"); scheduleButton.append(scheduleIcon);
+      scheduleButton.onclick = () => this._toggleSchedule(room); scheduleRow.append(scheduleButton, create("span", "", "schedule-status")); card.append(scheduleRow);
       const edit = card.querySelector(".edit"); edit.textContent = "⚙"; edit.setAttribute("aria-label", "Konfigurieren"); edit.title = `${room.config.name} konfigurieren`;
       const details = create("div", "", "help control-preview"); card.append(details);
       card.append(this._targetStepper(room.entity_id, room.config.name));
@@ -411,6 +563,12 @@ class ThermoControlPanel extends HTMLElement {
       card.classList.toggle("heating", Boolean(available && attributes.hvac_action === "heating"));
       const nativeAuto = state?.state === "auto" || attributes.native_auto;
       this._updateClimateControls(card, state);
+      const scheduleButton = card.querySelector(".schedule-toggle"); scheduleButton.disabled = !available;
+      scheduleButton.setAttribute("aria-pressed", String(Boolean(attributes.schedule_active)));
+      scheduleButton.title = attributes.schedule_active ? "Zeitplan ausschalten · Manuell" : nativeAuto ? "Thermo-Control-Zeitplan aktivieren · Geräte-Auto verlassen" : "Wochenzeitplan aktivieren";
+      let until = "";
+      if (attributes.schedule_until) { try { until = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: this._data.time_zone || "UTC" }).format(new Date(attributes.schedule_until)); } catch {} }
+      card.querySelector(".schedule-status").textContent = attributes.schedule_active ? `${attributes.schedule_override ? "Override" : "Auto"}${until ? ` (bis ${until})` : ""}${attributes.preheating ? " · Vorheizen" : ""}` : "Manuell";
       this._updateTargetStepper(card, room.entity_id, state);
       const detail = card.querySelector(".control-preview");
       const percent = Number.isFinite(attributes.heat_demand) ? `${attributes.heat_demand.toFixed(0)} % Bedarf` : "";
@@ -420,11 +578,23 @@ class ThermoControlPanel extends HTMLElement {
     }
   }
 
+  _updateScheduleEditor() {
+    const editor = this.shadowRoot.querySelector("thermo-control-schedule-editor");
+    if (editor && this._data) editor.context = { data: this._data, hass: this._hass };
+  }
+
+  _toggleSchedule(room) {
+    const state = this._hass.states[room.entity_id];
+    const configured = (this._data.schedules || []).some((plan) => plan.room_id === room.id || plan.group_id && plan.group_id === room.config.group_id);
+    if (!configured) { this._switchTab("schedules"); this.shadowRoot.querySelector("thermo-control-schedule-editor").selectOwner(`room:${room.id}`); return; }
+    this._service(room, "set_preset_mode", { preset_mode: state?.attributes.schedule_active ? "none" : "schedule" });
+  }
+
   _climateControls(entityId, name = "") {
     const controls = create("div", undefined, "controls");
     for (const [className, title, options, service, key] of [
       ["mode", "Heizung", { off: "Pause / Frostschutz", heat: "Heizen", auto: "Auto · Gerätezeitplan" }, "set_hvac_mode", "hvac_mode"],
-      ["preset", "Preset", PRESETS, "set_preset_mode", "preset_mode"],
+      ["preset", "Preset", CLIMATE_PRESETS, "set_preset_mode", "preset_mode"],
     ]) {
       const label = create("label", title), select = create("select", undefined, className);
       select.setAttribute("aria-label", name ? `${name}: ${title}` : title);
@@ -446,7 +616,7 @@ class ThermoControlPanel extends HTMLElement {
     for (const option of mode.options) option.disabled = !supportedModes.includes(option.value);
     if (this.shadowRoot.activeElement !== mode) mode.value = nativeAuto ? "auto" : attributes.desired_hvac_mode || state?.state || "off";
     if (this.shadowRoot.activeElement !== preset) preset.value = attributes.preset_mode || "none";
-    const supportedPresets = attributes.preset_modes || Object.keys(PRESETS);
+    const supportedPresets = attributes.preset_modes || Object.keys(CLIMATE_PRESETS);
     for (const option of preset.options) option.disabled = !supportedPresets.includes(option.value);
     mode.disabled = !available;
     preset.disabled = !available || this._nativeAuto(state);
@@ -758,6 +928,10 @@ class ThermoControlPanel extends HTMLElement {
       .room-tile .controls { grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .room-tile select { min-width: 0; min-height: 44px; padding: 8px; }
       .room-tile .help { overflow-wrap: anywhere; }
+      .schedule-indicator { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+      .schedule-toggle { flex: none; min-width: 44px; min-height: 44px; padding: 6px; }
+      .schedule-toggle[aria-pressed=true] { color: var(--primary-color, #287757); background: var(--secondary-background-color, #eef3ef); }
+      .schedule-status { font-size: 11px; overflow-wrap: anywhere; }
       .room-tile .control-preview { margin-top: 8px; font-size: 10px; }
       .target-stepper { display: grid; grid-template-columns: minmax(44px, 1fr) minmax(0, 1.2fr) minmax(44px, 1fr); gap: 0; width: 100%; margin-top: 12px; border: 1px solid var(--divider-color, rgba(255,255,255,.08)); border-radius: 999px; background: var(--card-background-color, #29292c); color: var(--primary-text-color, #f5f5f7); overflow: hidden; }
       .room-tile .target-stepper { width: calc(100% + 20px); margin-left: -10px; }
@@ -780,7 +954,7 @@ class ThermoControlPanel extends HTMLElement {
     const master = create("div", undefined, "master"); master.innerHTML = `<label>Master-Sollwertverschiebung (°C)<input id="master-offset" type="range" min="-5" max="5" step="0.5" value="0"></label><output id="master-value">0 °C</output>`;
     overview.querySelector("#rooms").before(master);
     const groupCards = create("section", undefined, "group-cards"); groupCards.id = "group-cards"; groupCards.setAttribute("aria-label", "Gruppensteuerung"); master.after(groupCards);
-    for (const [id, title] of [["overview", "Übersicht"], ["graphs", "Verläufe & Analyse"], ["groups", "Thermostate & Gruppen"], ["settings", "Einstellungen"]]) {
+    for (const [id, title] of [["overview", "Übersicht"], ["graphs", "Verläufe & Analyse"], ["schedules", "Zeitpläne"], ["groups", "Thermostate & Gruppen"], ["settings", "Einstellungen"]]) {
       const button = create("button", title); button.type = "button"; button.id = `nav-${id}`; button.setAttribute("role", "tab"); button.setAttribute("aria-controls", `tab-${id}`); button.dataset.tab = id; button.onclick = () => this._switchTab(id); tabs.append(button);
       if (id !== "overview") { const section = create("section"); section.id = `tab-${id}`; section.setAttribute("role", "tabpanel"); main.insertBefore(section, main.querySelector(".footer")); }
       root.querySelector(`#tab-${id}`).setAttribute("aria-labelledby", button.id);
@@ -788,9 +962,11 @@ class ThermoControlPanel extends HTMLElement {
     tabs.onkeydown = (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       event.preventDefault(); const buttons = [...tabs.children]; const current = buttons.indexOf(event.target);
-      const next = event.key === "Home" ? 0 : event.key === "End" ? 3 : (current + (event.key === "ArrowRight" ? 1 : -1) + 4) % 4;
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
       this._switchTab(buttons[next].dataset.tab); buttons[next].focus();
     };
+    const scheduleEditor = document.createElement("thermo-control-schedule-editor"); root.querySelector("#tab-schedules").append(scheduleEditor);
+    scheduleEditor.addEventListener("schedules-updated", (event) => this._receive({ ...this._data, ...event.detail }));
     const graph = root.querySelector("#tab-graphs"); graph.innerHTML = `<div class="analytics"><h2>Temperaturen und Heizphasen</h2><div class="chart-controls"><label>Raum / Gruppe<select id="graph-room"></select></label><label>Zeitfenster<select id="graph-window"><option value="6">6 Stunden</option><option value="24" selected>24 Stunden</option><option value="48">48 Stunden</option><option value="168">7 Tage</option></select></label><label class="checkbox"><input id="graph-flow" type="checkbox"><span>Vorlauftemperatur einblenden</span></label><button id="refresh-graph">Aktualisieren</button></div><div class="legend"><span style="--color:#287757">Raum Ist</span><span style="--color:#c56a35">Raum Soll</span><span style="--color:#467eb2">Vorlauf</span></div><p class="help">Heizphasen: orange = heating, grau = idle/off, Lücken = unbekannt. Zeige auf eine Kurve für Messwerte.</p><svg id="history-chart" class="chart" viewBox="0 0 900 340" role="img" aria-label="Temperaturverlauf mit Heizphasen"></svg><p id="graph-status" role="status"></p><p id="graph-tooltip" class="help" role="status"></p></div>`;
     for (const id of ["#graph-room", "#graph-window", "#graph-flow"]) root.querySelector(id).onchange = () => this._loadHistory();
     root.querySelector("#refresh-graph").onclick = () => this._loadHistory();
@@ -815,6 +991,10 @@ class ThermoControlPanel extends HTMLElement {
     for (const button of this.shadowRoot.querySelectorAll("[role=tab]")) { const selected = button.dataset.tab === tab; button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1; this.shadowRoot.querySelector(`#tab-${button.dataset.tab}`).hidden = !selected; }
     if (tab === "graphs") this._loadHistory();
     if (tab === "settings") this._fillSettings();
+    if (tab === "schedules") {
+      this._updateScheduleEditor();
+      this._hass.callWS({ type: "thermo_control/get_schedules" }).then((result) => { if (result && this.isConnected) this._receive({ ...this._data, ...result }); }).catch((error) => this._error(this._message(error)));
+    }
     if (tab !== "graphs") this._historyGeneration += 1;
   }
 

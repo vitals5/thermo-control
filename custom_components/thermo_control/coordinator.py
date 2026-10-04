@@ -107,6 +107,8 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.manual_target = self.target
         self.mode = HVACMode.OFF
         self.preset = "none"
+        self.schedule_state = {"schedule_active": False, "schedule_available": False}
+        self._preheat_latch = {}
         self.window_blocked = False
         self._window_pending: bool | None = None
         self._window_cancel: Callable[[], None] | None = None
@@ -126,6 +128,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load()
         if stored:
             self._calibration = stored.get("calibration", {})
+            self._preheat_latch = stored.get("schedule_preheat", {})
             self.window_blocked = bool(stored.get("window_blocked", False))
             self.controller.restore(stored.get("control", {}), dt_util.utcnow().timestamp())
         self._publish()
@@ -293,6 +296,8 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._publish()
                     raise
             if preset is not None:
+                if self.manager and self.manager.schedules.plan_for(self.entry.entry_id):
+                    await self.manager.schedules.async_room_active(self.entry.entry_id, False)
                 if preset == "none":
                     self.target = self.manual_target
                 else:
@@ -301,8 +306,15 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.target = float(self.config[f"preset_{preset}"])
                 self.preset = preset
             if temperature is not None:
-                self.target = self.manual_target = temperature
-                self.preset = "none"
+                schedule_active = (
+                    self.manager and self.manager.schedules.state_for(self)["schedule_active"]
+                )
+                if schedule_active:
+                    await self.manager.schedules.async_override(self, temperature)
+                    self.target = temperature
+                else:
+                    self.target = self.manual_target = temperature
+                    self.preset = "none"
             self._update_windows()
             await self._reconcile()
 
@@ -422,6 +434,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             action = None  # A missing hardware report is never invented from demand.
         self.async_set_updated_data(
             {
+                **self.schedule_state,
                 "temperature": room,
                 "target": target,
                 "mode": HVACMode.AUTO
@@ -455,6 +468,51 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.manager.notify()
 
     async def _reconcile(self) -> None:
+        self.schedule_state = (
+            self.manager.schedules.state_for(self)
+            if self.manager
+            else {"schedule_active": False, "schedule_available": False}
+        )
+        previous_latch = self._preheat_latch
+        state = self.schedule_state
+        if (
+            state["schedule_active"]
+            and not state.get("schedule_override")
+            and self.config["heating_type"] == "floor"
+        ):
+            until = dt_util.parse_datetime(previous_latch.get("until", ""))
+            if (
+                until
+                and until > dt_util.utcnow()
+                and previous_latch.get("signature") == state.get("schedule_signature")
+            ):
+                state.update(
+                    target=previous_latch["target"],
+                    preheating=True,
+                    schedule_until=previous_latch["until"],
+                )
+            elif state["preheating"]:
+                self._preheat_latch = {
+                    "target": state["target"],
+                    "until": state["next_change"],
+                    "signature": state["schedule_signature"],
+                }
+            else:
+                self._preheat_latch = {}
+        else:
+            self._preheat_latch = {}
+        if previous_latch != self._preheat_latch:
+            try:
+                await self._store.async_save(self._storage_data())
+            except OSError:
+                self._preheat_latch = previous_latch
+                raise
+        if self.schedule_state["schedule_active"]:
+            self.target = self.schedule_state["target"]
+            self.preset = "schedule"
+        elif self.preset == "schedule":
+            self.target = self.manual_target
+            self.preset = "none"
         room = self._room_temperature()
         enabled = (
             self.mode == HVACMode.HEAT
@@ -700,6 +758,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @callback
     def _storage_data(self) -> dict[str, Any]:
         return {
+            "schedule_preheat": self._preheat_latch,
             "calibration": self._calibration,
             "window_blocked": self.window_blocked,
             "control": self.controller.dump(),

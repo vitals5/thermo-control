@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 
 from .configuration import validate_room, validate_settings
 from .const import CONF_TRVS, DEFAULTS, DEVICE_DEFAULTS, DOMAIN, SYSTEM_DEFAULTS
+from .schedule import ScheduleManager
 from .system import HeatingSystem
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ class RoomManager:
         self.settings = deepcopy(SYSTEM_DEFAULTS)
         self.groups = {}
         self.system = HeatingSystem(self)
+        self.schedules = ScheduleManager(self)
         self._reconcile_task = None
         self._reconcile_again = False
         self.config_entry_id: str | None = None
@@ -73,6 +75,7 @@ class RoomManager:
             self.settings = validate_settings(
                 self.hass, stored.get("settings", deepcopy(SYSTEM_DEFAULTS)), check_entities=False
             )
+        await self.schedules.async_initialize()
         self.system.bind()
 
     def _payload(self, rooms: dict[str, Any], revision: int) -> dict[str, Any]:
@@ -131,6 +134,7 @@ class RoomManager:
                 )
                 await coordinator.async_initialize()
                 self.entities[room_id] = ThermoControlClimate(coordinator, manager=self)
+            self.schedules.bind()
             add_entities(list(self.entities.values()))
             await self._sync_groups()
             self.notify()
@@ -174,6 +178,7 @@ class RoomManager:
                 coordinator.manual_target = previous.coordinator.manual_target
                 coordinator.preset = previous.coordinator.preset
                 coordinator.window_blocked = previous.coordinator.window_blocked
+                coordinator._preheat_latch = deepcopy(previous.coordinator._preheat_latch)
                 coordinator._calibration = deepcopy(previous.coordinator._calibration)
                 coordinator.controller.restore(
                     previous.coordinator.controller.dump(), dt_util.utcnow().timestamp()
@@ -313,6 +318,7 @@ class RoomManager:
     @callback
     def snapshot(self) -> dict[str, Any]:
         return {
+            **self.schedules.snapshot(),
             "defaults": deepcopy(DEFAULTS),
             "device_defaults": deepcopy(DEVICE_DEFAULTS),
             "settings": deepcopy(self.settings),
@@ -338,6 +344,7 @@ class RoomManager:
     async def async_shutdown(self) -> None:
         self._closed = True
         self.system.close()
+        self.schedules.close()
         if self._reconcile_task and not self._reconcile_task.done():
             self._reconcile_task.cancel()
             await asyncio.gather(self._reconcile_task, return_exceptions=True)

@@ -97,3 +97,4 @@ async def test_real_setup_restore_and_unload(hass, room, service_calls, hass_sto
     assert hass.states.get("climate.living_room") is None
     assert entity.coordinator._closed
     await platform.async_reset()
+    await manager.async_shutdown()

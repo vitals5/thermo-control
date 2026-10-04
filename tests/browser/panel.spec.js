@@ -8,7 +8,9 @@ async function mount(page, populated = false) {
     const defaults = { window_sensors: [], tolerance: 0.3, calibration_interval: 600, calibration_threshold: 0.5, window_open_delay: 30, window_close_delay: 60, frost_temperature: 5, preset_none: 20, preset_eco: 17, preset_comfort: 21, preset_boost: 25, preset_away: 15 };
     const deviceDefaults = { temperature_is_calibrated: true, regulated_mode: "heat", calibration_min: -9, calibration_max: 9, calibration_step: 0.5 };
     const config = { ...defaults, name: "Wohnzimmer", trvs: ["climate.trv"], temperature_sensor: "sensor.room", window_sensors: ["binary_sensor.window"], devices: { "climate.trv": { ...deviceDefaults, calibration_entity: "number.offset" } } };
-    let data = { rooms: populated ? [{ id: "living", config, entity_id: "climate.living" }] : [], revision: 0, defaults, device_defaults: deviceDefaults };
+    const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    const template = (name, blocks) => ({ name, weekdays: Object.fromEntries(days.map((day) => [day, blocks.map(([from, to, temp]) => ({ from, to, temp }))])) });
+    let data = { schedules: [], schedule_revision: 0, time_zone: "Europe/Berlin", schedule_templates: { standard_fbh: template("Standard FBH", [["00:00", "06:00", 19], ["06:00", "22:00", 21.5], ["22:00", "24:00", 19]]), homeoffice: template("Homeoffice", [["00:00", "08:00", 18], ["08:00", "22:00", 21.5], ["22:00", "24:00", 18]]), away: template("Abwesend", [["00:00", "24:00", 18]]) }, rooms: populated ? [{ id: "living", config, entity_id: "climate.living" }] : [], revision: 0, defaults, device_defaults: deviceDefaults };
     let listener;
     window.messages = [];
     window.services = [];
@@ -30,6 +32,17 @@ async function mount(page, populated = false) {
         window.messages.push(structuredClone(message));
         if (window.failSave && message.type.endsWith("save_room")) throw { message: "Ein Thermostat ist bereits einem anderen Raum zugeordnet." };
         if (message.type.endsWith("rooms")) return data;
+        if (message.type.endsWith("get_schedules")) return { schedules: data.schedules, schedule_revision: data.schedule_revision, schedule_templates: data.schedule_templates, time_zone: data.time_zone };
+        if (message.type.endsWith("save_schedule")) {
+          if (window.failSchedule) throw { message: "Zeitblöcke überschneiden sich." };
+          if (message.revision !== data.schedule_revision) throw { message: "Zeitpläne wurden inzwischen geändert. Bitte neu laden." };
+          const same = (plan) => message.schedule.room_id ? plan.room_id === message.schedule.room_id : plan.group_id === message.schedule.group_id;
+          data = { ...data, schedules: [...data.schedules.filter((plan) => !same(plan)), message.schedule], schedule_revision: data.schedule_revision + 1 }; listener(data); return { schedules: data.schedules, schedule_revision: data.schedule_revision };
+        }
+        if (message.type.endsWith("copy_schedule")) {
+          if (window.failCopy) throw { message: "Zeitplan konnte nicht kopiert werden." };
+          data = { ...data, schedule_revision: data.schedule_revision + 1 }; listener(data); return { schedules: data.schedules, schedule_revision: data.schedule_revision };
+        }
         if (message.type.endsWith("save_settings")) {
           if (window.failSettings) throw { message: "Die Konfiguration wurde inzwischen geändert." };
           data = { ...data, settings: message.config, revision: data.revision + 1 }; listener(data); return {};
@@ -240,9 +253,9 @@ test("entity search is safe on mobile and excludes virtual and assigned climates
 });
 
 
-test("four tabs are keyboard accessible and master offset is submitted", async ({ page }) => {
+test("five tabs are keyboard accessible and master offset is submitted", async ({ page }) => {
   await mount(page, true);
-  await expect(page.getByRole("tab")).toHaveCount(4);
+  await expect(page.getByRole("tab")).toHaveCount(5);
   await expect(page.getByRole("tab", { name: "Übersicht", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".master button")).toHaveCount(0);
   await page.locator("#master-offset").focus();
@@ -761,4 +774,121 @@ test("group mode and preset selectors control the whole group and fit mobile car
   await page.evaluate(() => window.updateEntity("climate.ground", { state: "unavailable", attributes: { temperature: 21 } }));
   await expect(mode).toBeDisabled();
   await expect(preset).toBeDisabled();
+});
+
+async function schedules(page) {
+  await page.getByRole("tab", { name: "Zeitpläne", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Wochenzeitpläne", exact: true })).toBeVisible();
+  return page.locator("thermo-control-schedule-editor");
+}
+
+test("visual weekly editor loads FBH templates and edits weekdays without changing weekends", async ({ page }) => {
+  await mount(page, true);
+  const editor = await schedules(page);
+  await editor.getByLabel("Vorlage", { exact: true }).selectOption("standard_fbh");
+  await editor.getByRole("button", { name: "Mo–Fr", exact: true }).click();
+  await editor.getByRole("button", { name: "Zeitblock 06:00 bis 22:00, 21.5 °C", exact: true }).click();
+  await editor.getByLabel("Block-Sollwert (°C)", { exact: true }).fill("22");
+  await editor.getByRole("button", { name: "Block übernehmen", exact: true }).click();
+  await editor.getByLabel("Automatikmodus aktiv", { exact: true }).check();
+  await editor.getByLabel("Vorausschauendes Vorheizen bei FBH", { exact: true }).check();
+  await editor.getByRole("button", { name: "Zeitplan speichern", exact: true }).click();
+  await expect(editor.getByRole("alert").filter({ hasText: "Zeitplan gespeichert" })).toBeVisible();
+  const call = await page.evaluate(() => window.messages.find((message) => message.type === "thermo_control/save_schedule"));
+  expect(call.schedule.room_id).toBe("living"); expect(call.schedule.enabled).toBe(true); expect(call.schedule.preheat).toBe(true);
+  for (const day of ["monday", "tuesday", "wednesday", "thursday", "friday"]) expect(call.schedule.weekdays[day][1].temp).toBe(22);
+  expect(call.schedule.weekdays.saturday[1].temp).toBe(21.5);
+  expect(call.schedule.weekdays.sunday[1].temp).toBe(21.5);
+  const lengths = await editor.locator("#timeline button").evaluateAll((buttons) => buttons.map((button) => parseFloat(button.style.width)));
+  [25, 100 * 16 / 24, 100 * 2 / 24].forEach((value, index) => expect(lengths[index]).toBeCloseTo(value, 4));
+});
+
+test("night blocks appear on the next day and can be edited from their carry segment", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mount(page, true); const editor = await schedules(page);
+  await editor.getByRole("button", { name: "+ Block hinzufügen", exact: true }).click();
+  await editor.getByLabel("Startzeit", { exact: true }).fill("22:00");
+  await editor.getByLabel("Endzeit", { exact: true }).fill("06:00");
+  await editor.getByLabel("Block-Sollwert (°C)", { exact: true }).fill("18");
+  await editor.getByRole("button", { name: "Block übernehmen", exact: true }).click();
+  await editor.getByRole("button", { name: "Di", exact: true }).click();
+  const night = editor.getByRole("button", { name: "Nachtblock 22:00 bis 06:00, 18 °C", exact: true });
+  await expect(night).toBeVisible();
+  expect(await night.evaluate((button) => button.style.width)).toBe("25%");
+  await night.click();
+  await expect(editor.getByRole("button", { name: "Mo", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await editor.getByLabel("Block-Sollwert (°C)", { exact: true }).fill("18.5");
+  await editor.getByRole("button", { name: "Block übernehmen", exact: true }).click();
+  await editor.getByRole("button", { name: "Zeitplan speichern", exact: true }).click();
+  const plan = await page.evaluate(() => window.messages.find((message) => message.type === "thermo_control/save_schedule").schedule);
+  expect(plan.weekdays.monday).toEqual([{ from: "22:00", to: "06:00", temp: 18.5 }]);
+  expect(plan.weekdays.tuesday).toEqual([]);
+  expect(await editor.evaluate((element) => element.getBoundingClientRect().right <= innerWidth && element.shadowRoot.querySelector("section").scrollWidth <= element.getBoundingClientRect().width)).toBe(true);
+});
+
+test("weekly and day copies use the selected room group and days", async ({ page }) => {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings); settings.groups = [{ id: "ground", name: "Erdgeschoss", control: {} }];
+    window.updateSnapshot({ settings, groups: [{ id: "ground", entity_id: "climate.ground" }] });
+  });
+  const editor = await schedules(page);
+  await editor.getByLabel("Vorlage", { exact: true }).selectOption("homeoffice");
+  await editor.getByRole("button", { name: "Zeitplan speichern", exact: true }).click();
+  await editor.getByRole("button", { name: "Plan auf andere Räume übertragen", exact: true }).click();
+  await editor.getByLabel("Zielräume und Gruppen", { exact: true }).selectOption("group:ground");
+  await editor.getByRole("button", { name: "Kopieren", exact: true }).click();
+  let call = await page.evaluate(() => window.messages.filter((message) => message.type === "thermo_control/copy_schedule").at(-1));
+  expect(call.source).toBe("room:living"); expect(call.targets).toEqual(["group:ground"]); expect(call.source_day).toBeUndefined();
+  await editor.getByRole("button", { name: "Plan auf andere Räume übertragen", exact: true }).click();
+  await editor.getByLabel("Kopierumfang", { exact: true }).selectOption("day");
+  await editor.getByLabel("Zielräume und Gruppen", { exact: true }).selectOption("room:living");
+  await editor.getByLabel("Zieltage", { exact: true }).selectOption(["saturday", "sunday"]);
+  await editor.getByRole("button", { name: "Kopieren", exact: true }).click();
+  call = await page.evaluate(() => window.messages.filter((message) => message.type === "thermo_control/copy_schedule").at(-1));
+  expect(call.source_day).toBe("monday"); expect(call.target_days).toEqual(["saturday", "sunday"]);
+});
+
+test("schedule validation errors and concurrent snapshots preserve editor and open block drafts", async ({ page }) => {
+  await mount(page, true); const editor = await schedules(page);
+  await editor.getByLabel("Vorlage", { exact: true }).selectOption("away");
+  await editor.getByRole("button", { name: "Zeitblock 00:00 bis 24:00, 18 °C", exact: true }).click();
+  await editor.getByLabel("Block-Sollwert (°C)", { exact: true }).fill("19.5");
+  await page.evaluate(() => window.updateSnapshot({ schedule_revision: 2 }));
+  await expect(editor.getByLabel("Block-Sollwert (°C)", { exact: true })).toHaveValue("19.5");
+  await editor.getByRole("button", { name: "Block übernehmen", exact: true }).click();
+  await page.evaluate(() => { window.failSchedule = true; });
+  await editor.getByRole("button", { name: "Zeitplan speichern", exact: true }).click();
+  await expect(editor.getByRole("alert").filter({ hasText: "überschneiden" })).toBeVisible();
+  await expect(editor.getByRole("button", { name: "Zeitblock 00:00 bis 24:00, 19.5 °C", exact: true })).toBeVisible();
+  await expect(editor.getByRole("button", { name: "Zeitplan speichern", exact: true })).toBeEnabled();
+  await page.evaluate(() => { window.failSchedule = false; });
+  await editor.getByRole("button", { name: "Zeitplan speichern", exact: true }).click();
+  await expect(editor.getByRole("alert").filter({ hasText: "inzwischen geändert" })).toBeVisible();
+});
+
+test("room calendar switches automation and shows timed overrides while steppers remain usable", async ({ page }) => {
+  await pauseClock(page); await mount(page, true);
+  const toggle = page.getByRole("button", { name: "Wohnzimmer: Zeitplan umschalten", exact: true });
+  await toggle.click();
+  await expect(page.getByRole("tab", { name: "Zeitpläne", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.evaluate(() => {
+    window.updateSnapshot({ schedules: [{ room_id: "living", enabled: true, weekdays: {} }], schedule_revision: 1 });
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    Object.assign(state.attributes, { schedule_active: true, schedule_override: true, schedule_until: "2026-10-04T14:00:00Z", preset_mode: "schedule" });
+    window.updateEntity("climate.living", state);
+  });
+  await page.getByRole("tab", { name: "Übersicht", exact: true }).click();
+  await expect(page.getByText("Override (bis 16:00)", { exact: true })).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
+  await page.clock.runFor(400);
+  expect(await page.evaluate(() => window.services.at(-1).data.temperature)).toBe(21.5);
+  await toggle.click();
+  expect(await page.evaluate(() => window.services.at(-1).data.preset_mode)).toBe("none");
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]); state.attributes.schedule_active = false; state.attributes.preset_mode = "none"; window.updateEntity("climate.living", state);
+  });
+  await toggle.click();
+  expect(await page.evaluate(() => window.services.at(-1).data.preset_mode)).toBe("schedule");
 });

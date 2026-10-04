@@ -5,15 +5,17 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.4`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.0`.
 
-Neu in **2.0.4**: Gruppen verwenden wie einzelne Räume eine gemeinsame Heizmodus- und Preset-Auswahl. Die Master-Sollwertverschiebung hat ausschließlich einen Regler; Schnellwahlbuttons entfallen.
+Neu in **2.1.0**: Wochenzeitpläne pro Raum und Gruppe, visueller Editor im Tab **Zeitpläne**, temporäre manuelle Overrides und vorausschauendes FBH-Vorheizen. **Auto · Zeitplan** steuert Thermo Control in `heat`; **Auto · Gerätezeitplan** bleibt der separate Betriebsmodus des Thermostats.
+
+Seit **2.0.4**: Gruppen verwenden wie einzelne Räume eine gemeinsame Heizmodus- und Preset-Auswahl. Die Master-Sollwertverschiebung hat ausschließlich einen Regler; Schnellwahlbuttons entfallen.
 
 Seit **2.0.3**: Heizpausen senken den Gerätesollwert auf Frostschutz ab und erhalten `heat` sowie die Temperaturanzeige. Auto folgt dem geräteeigenen Zeitplan und pausiert die externe Regelung; das Panel kennzeichnet und schützt diesen Betrieb.
 
 Seit **2.0.2**: Raum- und Gruppen-Stepper mit 0,5-°C-Schritten, sofortiger Sollwertvorschau und 400-ms-Debouncing. Das zweispaltige Raumraster und die volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten funktionieren auch auf schmalen Displays.
 
-Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
+Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Zeitpläne**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
 
 Bestehende Räume bleiben bei ihrer bisherigen Thermostatregelung. Für Fußbodenheizung im Raumeditor **Heizungstyp → Fußbodenheizung** wählen. Globale FBH-Parameter und Luxtronik-Zuordnungen werden im Tab **Einstellungen** eingerichtet; eigene Raum- und Gruppenparameter sind optional. Gruppen erhalten Climate-Entitäten; Raumventile melden den tatsächlichen `hvac_action` ihrer Geräte.
 
@@ -21,7 +23,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.4` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -130,6 +132,21 @@ In einem gemischten Raum bleiben einzelne Auto-Thermostate unangetastet; die üb
 `valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `native_auto`, `auto_devices`, `temperature_source` (`external_sensor` / `thermostats`), `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
 
 Ein fehlendes TRV blockiert die übrigen Geräte nicht. Wiederholungen nicht bestätigter Steuerbefehle erfolgen höchstens einmal pro Minute. Jeder Serviceaufruf hat ein Timeout von zehn Sekunden. Sensor- und Geräteereignisse werden gebündelt; jede Minute wird außerdem auf ausstehende Wiederholungen und Kalibrierungen geprüft. Die State-Listener verwenden ausschließlich `async_track_state_change_event`; Listener, Timer und laufende Aufgaben werden beim Entladen entfernt.
+
+## Wochenzeitpläne und Automatik
+
+1. Im Tab **Zeitpläne** einen Raum oder eine Gruppe auswählen. Eigene Raumpläne haben Vorrang vor Gruppenplänen, auch wenn der Raumplan deaktiviert ist.
+2. Eine Vorlage (**Standard FBH**, **Homeoffice**, **Abwesend**) wählen oder eigene Blöcke anlegen. **Mo–Fr**, **Sa–So** und Einzeltage auswählen; Blockänderungen gelten für alle ausgewählten Tage. Die Zeitachse zeigt den ersten ausgewählten Tag.
+3. Einen farbigen Zeitblock antippen und Start, Ende und Sollwert bearbeiten. Sollwerte verwenden 0,5-°C-Schritte bei 5–30 °C. **Block übernehmen** verändert den Entwurf; **Zeitplan speichern** schreibt ihn nach Home Assistant. Nachtblöcke dürfen über Mitternacht reichen. `24:00` ist als Ende erlaubt; überschneidende Blöcke, einschließlich der Nachtanteile des Vortags, werden abgewiesen.
+4. **Automatikmodus aktiv** einschalten und speichern. Das aktiviert für die betroffenen Räume Heizen und das Preset `schedule`. Der Heizmodus muss temperaturregelndes `heat` unterstützen. Falls ein Thermostat in Geräte-Auto war, ist diese Aktivierung eine bewusste Übernahme in Heat; ein später am Gerät aktiviertes Auto wird weiterhin respektiert.
+5. In der Raumkachel schaltet das Kalendersymbol zwischen Zeitplan und Manuell um. Ohne vorhandenen Plan führt es direkt zum Editor. Bei Zeitplan-Automatik bleiben die Sollwert-Stepper bedienbar: eine Änderung erzeugt einen **Override bis zum nächsten tatsächlichen Temperaturwechsel**, optional für die eingestellte Stundenzahl (0–48 h). Ein durchgehend konstanter Plan ohne Schaltpunkt begrenzt einen solchen Override auf 24 Stunden. Danach gilt automatisch wieder der Plan. Kacheln zeigen **Auto (bis …)**, **Override (bis …)** und **Vorheizen**.
+6. Ein gespeicherter Plan lässt sich über **Plan auf andere Räume übertragen** als Woche oder einzelner Tag auf Räume, Gruppen oder weitere Wochentage kopieren. Neue Wochenkopien sind zunächst deaktiviert; Tageskopien erhalten den Aktivierungszustand ihres Zielplans. Ungespeicherte Entwürfe zuerst speichern.
+
+Zeitlücken verwenden den konfigurierten Fallback-Sollwert (Standard 18 °C). Die HA-Zeitzone bestimmt die Schaltzeiten. In der fehlenden Stunde der Sommerzeit werden Grenzen auf die erste existierende Minute verschoben; in der doppelt auftretenden Winterzeit wird die erste Ausführung verwendet. Gleich temperierte angrenzende Blöcke bilden keinen zusätzlichen Override-Schaltpunkt.
+
+**FBH-Vorheizen** benötigt die Option im Zeitplan und den Heizungstyp Fußbodenheizung. `Vorlaufzeit = (nächster höherer Sollwert + Master-Verschiebung − Raumtemperatur) / Aufheizkoeffizient`, begrenzt durch die maximale Vorheizzeit des Plans und die maximale Vorlaufzeit des Raums. Beispiel: Bei 20 °C Raumtemperatur, 21,5 °C Ziel um 06:00 und 1 °C/h beginnt das Vorheizen um 04:30. Ein begonnener Abschnitt bleibt bis zum geplanten Zeitpunkt bestehen und wird für Neustarts gespeichert. Ein manueller Override ersetzt ihn. Fensterpausen, Messwertausfälle, Luxtronik-Freigabe und Mindestzeiten bleiben wirksam.
+
+Zeitpläne und Overrides werden unter `.storage/thermo_control_schedules` gespeichert. Normale Presets (Manuell, Eco, Komfort, Boost, Abwesend) pausieren den Zeitplan des betreffenden Raums; `schedule` aktiviert ihn erneut. Bei eigenen Raumplänen wird auch deren Aktivierung angepasst; bei geerbten Gruppenplänen bleibt die Pause auf den einzelnen Raum begrenzt. Ein virtueller Heizmodus Off pausiert die Ausführung; zurück auf Heizen wird ein aktivierter Plan wieder ausgeführt. Geräte-Auto erhält keine automatischen Steuer- oder Kalibrierungsbefehle. FBH-Aufheizkoeffizienten sind einstellbare Anlagenparameter; eine automatische Lernfunktion ist nicht enthalten.
 
 ## Servicebeispiele
 

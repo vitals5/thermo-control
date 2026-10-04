@@ -134,5 +134,74 @@ def async_register_commands(hass: HomeAssistant) -> None:
         ws_delete_room,
         ws_save_settings,
         ws_master_offset,
+        ws_get_schedules,
+        ws_save_schedule,
+        ws_copy_schedule,
     ):
         websocket_api.async_register_command(hass, command)
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_schedules"})
+@websocket_api.require_admin
+@callback
+def ws_get_schedules(hass, connection, msg):
+    connection.send_result(msg["id"], hass.data[DOMAIN].schedules.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/save_schedule",
+        vol.Required("schedule"): dict,
+        vol.Required("revision"): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save_schedule(hass, connection, msg):
+    from homeassistant.exceptions import HomeAssistantError
+
+    try:
+        await hass.data[DOMAIN].schedules.async_save(msg["schedule"], msg["revision"])
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except OSError:
+        connection.send_error(
+            msg["id"], "storage_error", "Zeitplan konnte nicht gespeichert werden."
+        )
+    except (HomeAssistantError, TimeoutError) as err:
+        connection.send_error(
+            msg["id"],
+            "device_error",
+            f"Zeitplan gespeichert; Geräteumschaltung fehlgeschlagen: {err}",
+        )
+    else:
+        connection.send_result(msg["id"], hass.data[DOMAIN].schedules.snapshot())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/copy_schedule",
+        vol.Required("source"): str,
+        vol.Required("targets"): [str],
+        vol.Required("revision"): vol.All(int, vol.Range(min=0)),
+        vol.Optional("source_day"): str,
+        vol.Optional("target_days"): [str],
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_copy_schedule(hass, connection, msg):
+    try:
+        await hass.data[DOMAIN].schedules.async_copy(
+            msg["source"],
+            msg["targets"],
+            msg["revision"],
+            source_day=msg.get("source_day"),
+            target_days=msg.get("target_days"),
+        )
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except OSError:
+        connection.send_error(msg["id"], "storage_error", "Zeitpläne konnten nicht kopiert werden.")
+    else:
+        connection.send_result(msg["id"], hass.data[DOMAIN].schedules.snapshot())

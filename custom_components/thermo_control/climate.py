@@ -103,6 +103,10 @@ class ThermoControlClimate(
         return self.coordinator.data.get("target", self.coordinator.effective_target)
 
     @property
+    def preset_modes(self) -> list[str]:
+        return [*PRESETS, "schedule"] if self._manager else list(PRESETS)
+
+    @property
     def hvac_modes(self) -> list[HVACMode]:
         return [
             mode
@@ -133,6 +137,7 @@ class ThermoControlClimate(
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
+            **self.coordinator.schedule_state,
             "desired_hvac_mode": self.coordinator.mode,
             "manual_temperature": self.coordinator.manual_target,
             "target_temperature_celsius": self.coordinator.target,
@@ -194,6 +199,10 @@ class ThermoControlClimate(
         )
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if preset_mode == "schedule" and self._manager:
+            await self._manager.schedules.async_room_active(self.coordinator.entry.entry_id, True)
+            await self.coordinator.async_set_intent(mode=HVACMode.HEAT)
+            return
         if self.coordinator.native_auto:
             raise ServiceValidationError(
                 "Im Auto-Modus verwendet das Thermostat seinen eigenen Zeitplan."

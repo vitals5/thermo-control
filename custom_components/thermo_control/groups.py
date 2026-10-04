@@ -13,7 +13,7 @@ class ThermoControlGroup(ClimateEntity):
     _attr_has_entity_name = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
-    _attr_preset_modes = list(PRESETS)
+    _attr_preset_modes = [*PRESETS, "schedule"]
     _attr_target_temperature_step = 0.5
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
@@ -149,6 +149,16 @@ class ThermoControlGroup(ClimateEntity):
     async def async_set_preset_mode(self, preset_mode):
         from homeassistant.exceptions import ServiceValidationError
 
+        if preset_mode == "schedule":
+            if any(
+                not self.manager.schedules.plan_for(member.coordinator.entry.entry_id)
+                or not member.coordinator.supports_mode("heat")
+                for member in self.members
+            ):
+                raise ServiceValidationError("Zuerst einen Zeitplan für alle Gruppenräume anlegen.")
+            for member in self.members:
+                await member.async_set_preset_mode(preset_mode)
+            return
         if any(member.coordinator.native_auto for member in self.members):
             raise ServiceValidationError("Im Auto-Modus gilt der geräteeigene Zeitplan.")
         if preset_mode not in PRESETS or any(

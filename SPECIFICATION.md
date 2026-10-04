@@ -1,4 +1,4 @@
-# Thermo Control 2.0 – Regelung und Panel
+# Thermo Control 2.1 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -49,6 +49,22 @@ Trendmessungen, Integralanteil, letzter Schaltzeitpunkt und angeforderter Ventil
 - Auto-Heizaktivität zählt als beobachteter Wärmebedarf, ohne daraus PWM-Schaltungen abzuleiten. Geräte-Fensterschutz und Frostschutz bleiben im Auto-Betrieb Aufgabe der Geräte.
 - Beim Wechsel von/zu Auto wird der Befehls-Cache verworfen, damit der manuelle Sollwert anschließend sofort wieder übertragen werden kann. Kalibrierungs-Mindestintervalle bleiben erhalten.
 
+## Wochenzeitpläne, Overrides und FBH-Vorheizen
+
+Zeitpläne liegen in `.storage/thermo_control_schedules` (HA-Store-Version 1). Das Dokument enthält `plans`, `runtime` und eine eigenständige Konfigurationsrevision. Planschlüssel sind `room:<id>` / `group:<id>`; Daten besitzen genau eines von `room_id` / `group_id`, `enabled`, `weekdays`, `fallback_temp`, `override_hours`, `preheat`, `heating_rate` und `max_preheat_minutes`.
+
+`weekdays` verwendet monday–sunday mit Listen aus `{from: "HH:MM", to: "HH:MM", temp: 21.5}`. Fehlende Tage haben keine Blöcke. Endzeit `24:00` ist erlaubt; ein Ende vor dem Start reicht in den Folgetag. Gleiche Start-/Endzeit ist unzulässig. Höchstens 48 Blöcke je Tag, keine Überlappungen über Tages- oder Wochengrenzen. Temperaturen sind endlich und liegen in halben Gradschritten innerhalb 5–30 °C und der Hardwaregrenzen aller betroffenen Räume. Lücken verwenden `fallback_temp` (18 °C). Vorlagen: Standard FBH, Homeoffice, Abwesend.
+
+Raumpläne haben Vorrang vor Gruppenplänen, auch deaktivierte Raumpläne. Ausführung benötigt einen aktivierten Plan, `heat`, einen nicht manuell pausierten Raum und keinen Geräte-Auto-Betrieb. Aktivieren im Editor oder Preset `schedule` ist ein bewusster Wechsel auf Heat. Normale Presets pausieren die Raumautomatik. Fensterpausen ändern weiterhin nur den Hardware-Frostschutz-Sollwert; der geplante Raum-Sollwert wird auch während der Pause fortgeschrieben.
+
+Der Scheduler läuft auf dem Ereignis-Loop am Minutenwechsel. Die HA-Zeitzone bestimmt die örtlichen Wochentage und Grenzen. Nicht existierende Sommerzeit-Grenzen werden auf die erste existierende Minute verschoben; doppelte Winterzeit-Grenzen verwenden die erste Ausführung. Auswertung erfolgt über UTC-Intervalle, damit eine rückwärts springende Uhr einen Schaltpunkt nicht erneut ausführt. Gleiche Zieltemperaturen an aufeinanderfolgenden Grenzen bilden keinen Schaltpunkt.
+
+Manuelle Climate-Sollwerte während der Automatik erzeugen einen persistenten Override. `override_hours: 0` endet am nächsten geplanten Temperaturwechsel; bei konstanten Plänen nach 24 Stunden. Positive Werte bis 48 h enden nach dieser UTC-Dauer. Raum- und Gruppen-Climates behalten das Preset schedule; danach wird automatisch der aktuelle Plan ausgeführt. Laufzeitänderungen erhöhen die Konfigurationsrevision nicht, damit Overrides keine geöffneten Planentwürfe ungültig machen.
+
+Für FBH: `Vorlauf = max(0, zukünftiger Basis-Sollwert + Master-Offset − Raumtemperatur) / heating_rate`. Default heating_rate 0,5 °C/h, gültig 0,1–5. Die Vorlaufzeit ist durch Planparameter (0–360 Minuten, Default 180) und Raum-Vorlaufzeit begrenzt. Innerhalb des Fensters wird der nächste höhere geplante Sollwert frühzeitig an die bestehende PI/TPI-Regelung übergeben. Der Abschnitt wird bis zu seinem geplanten Zeitpunkt festgehalten und vor Gerätebefehlen im Raum-Store gespeichert; Planänderungen, Overrides oder Verlassen der Automatik verwerfen ihn. Kein automatisches Lernen des Koeffizienten. Fenster, Luxtronik, Messwerte und Anti-Takt-Schutz bleiben übergeordnet.
+
+Climate-Attribute: schedule_active, schedule_available, schedule_key, scheduled_target, schedule_override, schedule_until (UTC-ISO-Zeit), next_change, preheating. Geräte-Auto bleibt der HVAC-Modus auto, Thermo-Control-Automatik ist das Preset schedule im Modus heat.
+
 ## Sollwerte, Gruppen und tatsächlicher Heizstatus
 
 - `effektiver Sollwert = Basis-Sollwert + Master-Verschiebung`, begrenzt auf die Hardwaregrenzen des Raums. Der Basis-Sollwert bleibt erhalten. Die Master-Verschiebung wird ausschließlich über den Regler (−5 bis +5 °C, Schritt 0,5 °C) eingestellt. Es gibt dort keine Preset- oder Schnellwahlbuttons.
@@ -91,8 +107,9 @@ Diese Sensoren ermöglichen die Kopplung mit bestehenden Automationen. Thermo Co
 
 1. **Übersicht:** Luxtronik-Statusleiste, Master-Verschiebung, Gruppensteuerung mit derselben Heizmodus- und Preset-Auswahl wie bei einzelnen Räumen (keine separaten Gruppen-Heizbuttons), Raumkarten mit Etage, große Temperatur-Stepper, Heizmodus und Presets. Isttemperatur, Fenster, Ventilposition, Bedarf, Trend, Prognose und Pre-Shutoff sind direkt sichtbar. Das Raumraster hat auf Desktop und Mobilgeräten zwei Spalten mit 8 px Abstand. Raum- und Gruppen-Stepper zeigen `− / Sollwert / +` als volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten. Die Sollwerte werden in 0,5-°C-Schritten im Bereich 5–30 °C verstellt; engere Hardwaregrenzen bleiben wirksam. Die Anzeige reagiert sofort. Pro Climate-Entität wird `climate.set_temperature` erst 400 ms nach der letzten Eingabe gesendet. Zwischenzeitliche HA-Rückmeldungen und neue Snapshots überschreiben die Vorschau nicht; überlappende Aufrufe werden je Entität geordnet. Bei Service-Fehlern oder fehlender Bestätigung nach 10 Sekunden wird wieder der HA-Sollwert angezeigt. Verlassen des Panels, Entfernen eines Raums oder Ausfall seiner Entität oder Wechsel in Auto verwirft noch nicht gesendete Änderungen.
 2. **Verläufe & Analyse:** Raum-/Gruppen-Auswahl; 6h, 24h, 48h, 7 Tage; Ist-/Sollkurven, binäre Heizphasen und optional Vorlaufkurve. Lokales SVG-Diagramm mit Messwertvorschau, ohne CDN, Chart-Bibliothek oder zusätzliche HACS-Karte. Die authentifizierte HA-History-API liefert Recorder-Daten einschließlich Attributänderungen. Fehlende Historie wird angezeigt. Ausfallphasen unterbrechen Kurven und Heiz-Timeline. Gruppen-Ist-/Sollwerte stammen aus ihrer virtuellen Climate-Entität.
-3. **Thermostate & Gruppen:** Selektor-Matrix zur Gruppenzuordnung; Raumeditor für Multi-Thermostat-Kopplung, Etage, Heizungsart, Sensor und Kontakte. Gruppen können eigene vollständige FBH-Parameter bekommen. Eine noch zugewiesene Gruppe kann nicht gelöscht werden.
-4. **Einstellungen:** Luxtronik-Entitätszuordnung und Automatik-Aliase, Wärmefreigabe und Vorlaufgrenzen, globale FBH- und Kalibrierungsparameter, Mindestlauf-/Ruhezeiten.
+3. **Zeitpläne:** Responsive Web Component `thermo-control-schedule-editor` in der lokalen Panel-JS-Datei, Raum-/Gruppenauswahl, Tagesgruppen und Einzeltage, farbiger 24h-Balken mit antippbaren Blöcken, zusätzliche große Blockbuttons, Start-/Endzeit- und Sollwertbearbeitung, Vorlagen, Aktivierung, Fallback, Override-Dauer und Vorheizparameter. Kopierdialog für Tages- und Wochenpläne. Entwürfe und offene Bearbeitungen bleiben bei Telemetrie und Fehlern erhalten; konkurrierende Planänderungen werden erkannt. Kalendersymbol und Status auf den Raumkacheln.
+4. **Thermostate & Gruppen:** Selektor-Matrix zur Gruppenzuordnung; Raumeditor für Multi-Thermostat-Kopplung, Etage, Heizungsart, Sensor und Kontakte. Gruppen können eigene vollständige FBH-Parameter bekommen. Eine noch zugewiesene Gruppe kann nicht gelöscht werden.
+5. **Einstellungen:** Luxtronik-Entitätszuordnung und Automatik-Aliase, Wärmefreigabe und Vorlaufgrenzen, globale FBH- und Kalibrierungsparameter, Mindestlauf-/Ruhezeiten.
 
 Tabs sind per Tastatur erreichbar, mobile Ansichten sind geprüft. Entitätsfelder behalten Texteingabe, Live-Suche und Zustandsvorschau. Telemetrie aktualisiert laufende Felder ohne Fokusverlust. Das Panel und alle schreibenden WebSocket-Kommandos sind auf HA-Administratoren beschränkt.
 
@@ -100,13 +117,19 @@ Tabs sind per Tastatur erreichbar, mobile Ansichten sind geprüft. Entitätsfeld
 
 Bestehender Storage `.storage/thermo_control.rooms` erhält zusätzlich `settings`; vorhandene Daten ohne dieses Feld erhalten kompatible Defaults. Raum-IDs und bestehende Climate-Zuordnungen bleiben erhalten. Gruppen erhalten eigene stabile Unique IDs `group_<id>`. Raum- und Systemeinstellungen werden vor Laufzeitänderungen gespeichert und gegen eine gemeinsame Revision geprüft. Ein veralteter Editor erhält eine Konfliktmeldung, statt aktuelle Änderungen zu überschreiben.
 
-WebSocket-Kommandos: `thermo_control/rooms`, `subscribe`, `save_room`, `delete_room`, `save_settings`, `master_offset`. Raum-/System-Dokumente werden serverseitig geprüft (endliche Zahlen, Parametergrenzen, Entitätsdomains, Temperatureinheiten, doppelte Zuweisungen, Gruppenzugehörigkeit).
+WebSocket-Kommandos: `thermo_control/rooms`, `subscribe`, `save_room`, `delete_room`, `save_settings`, `master_offset`, `get_schedules`, `save_schedule`, `copy_schedule`. Raum-/System-Dokumente werden serverseitig geprüft (endliche Zahlen, Parametergrenzen, Entitätsdomains, Temperatureinheiten, doppelte Zuweisungen, Gruppenzugehörigkeit).
+
+Zeitplan-API (Admin-Rechte, registriert in websocket.py):
+
+- `get_schedules` → schedules, schedule_revision, schedule_templates, time_zone.
+- `save_schedule`: schedule (Planobjekt), revision (schedule_revision). Vor Speicherung werden Ziel, Zeiten, Überlappungen, Hardwaregrenzen und Heat-Unterstützung geprüft. Nach erfolgreicher Speicherung ggf. bewusste Heat-Aktivierung; ein Gerätefehler wird als device_error mit Hinweis auf den bereits gespeicherten Plan gemeldet.
+- `copy_schedule`: source (`room:<id>` / `group:<id>`), targets (Liste solcher Schlüssel), revision. Für Tageskopien zusätzlich source_day und target_days. Alle Ziele werden vor der gemeinsamen Speicherung geprüft; Wochenkopien sind deaktiviert. Quelltag und Zieltage müssen zusammen angegeben werden.
 
 Service: `thermo_control.set_master_offset`, Daten `{offset: -2}`; Benutzeraufrufe benötigen Admin-Rechte, Automationen ohne Benutzerkontext sind zulässig. Room-/Group-Climates verwenden die standardmäßigen Climate-Dienste. Physische Geräte bleiben beim Löschen eines Raums bestehen.
 
 ## Validierung und praktische Grenzen
 
-Automatisierte Tests verwenden reale HA-Zustände, Timer, Config Entries, Entity Registry, Climate-/Sensor-Plattformen und authentifizierte WebSockets. Zeitreihentests prüfen Trend, Pre-Shutoff, Integralsättigung, lange PWM-Zyklen, Mindestzeiten und Neustarts. Playwright prüft die vier Tabs, Live-Suche, Gruppenzuordnung, Expertenspeicherung, Historienkurven und mobile Layouts.
+Automatisierte Tests verwenden reale HA-Zustände, Timer, Config Entries, Entity Registry, Climate-/Sensor-Plattformen und authentifizierte WebSockets. Zeitreihentests prüfen Trend, Pre-Shutoff, Integralsättigung, lange PWM-Zyklen, Mindestzeiten und Neustarts. Playwright prüft die fünf Tabs, Zeitplaneditor, Kopien und Overrides, Live-Suche, Gruppenzuordnung, Expertenspeicherung, Historienkurven und mobile Layouts.
 
 Ein physischer Test an der WWC 100 H/X und ihren Heizkreisen ist in der Entwicklungsumgebung nicht möglich. Trendprognose und Standardwerte müssen deshalb an der realen Anlage anhand der aufgezeichneten Verläufe beurteilt und angepasst werden. Die sieben Tage Diagrammfenster setzen entsprechende Recorder-Aufbewahrung und eingeschlossene Entitäten voraus.
 
