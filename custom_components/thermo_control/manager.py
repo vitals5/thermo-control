@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -16,14 +17,17 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
-from .configuration import validate_room
-from .const import CONF_TRVS, DEFAULTS, DEVICE_DEFAULTS, DOMAIN
+from .configuration import validate_room, validate_settings
+from .const import CONF_TRVS, DEFAULTS, DEVICE_DEFAULTS, DOMAIN, SYSTEM_DEFAULTS
+from .system import HeatingSystem
 
 if TYPE_CHECKING:
     from .climate import ThermoControlClimate
 
 SIGNAL_ROOMS = f"{DOMAIN}_rooms_updated"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -43,6 +47,11 @@ class RoomManager:
         self.rooms: dict[str, dict[str, Any]] = {}
         self.entities: dict[str, ThermoControlClimate] = {}
         self.revision = 0
+        self.settings = deepcopy(SYSTEM_DEFAULTS)
+        self.groups = {}
+        self.system = HeatingSystem(self)
+        self._reconcile_task = None
+        self._reconcile_again = False
         self.config_entry_id: str | None = None
         self._store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.rooms")
         self._lock = asyncio.Lock()
@@ -61,12 +70,17 @@ class RoomManager:
             self.rooms = validated
             self.revision = stored.get("revision", 0)
             self._migrated_entries = set(stored.get("migrated_entries", []))
+            self.settings = validate_settings(
+                self.hass, stored.get("settings", deepcopy(SYSTEM_DEFAULTS)), check_entities=False
+            )
+        self.system.bind()
 
     def _payload(self, rooms: dict[str, Any], revision: int) -> dict[str, Any]:
         return {
             "rooms": rooms,
             "revision": revision,
             "migrated_entries": sorted(self._migrated_entries),
+            "settings": self.settings,
         }
 
     async def async_import_legacy(self, entries: list[ConfigEntry]) -> None:
@@ -88,6 +102,7 @@ class RoomManager:
                     "rooms": candidate,
                     "revision": self.revision + 1,
                     "migrated_entries": sorted(imported),
+                    "settings": self.settings,
                 }
             )
             self.rooms = candidate
@@ -111,10 +126,13 @@ class RoomManager:
                     registry.async_update_entity(
                         registered_id, config_entry_id=None, device_id=None
                     )
-                coordinator = ThermoControlCoordinator(self.hass, RoomConfig(room_id, config))
+                coordinator = ThermoControlCoordinator(
+                    self.hass, RoomConfig(room_id, config), manager=self
+                )
                 await coordinator.async_initialize()
                 self.entities[room_id] = ThermoControlClimate(coordinator, manager=self)
             add_entities(list(self.entities.values()))
+            await self._sync_groups()
             self.notify()
 
     def _check_revision(self, revision: int) -> None:
@@ -136,9 +154,15 @@ class RoomManager:
             if room_id is not None and room_id not in self.rooms:
                 raise ServiceValidationError("Der Raum existiert nicht mehr.")
             validated = validate_room(self.hass, config, self.rooms, room_id)
+            if validated["group_id"] is not None and validated["group_id"] not in {
+                group["id"] for group in self.settings["groups"]
+            }:
+                raise ServiceValidationError("Die Gruppe existiert nicht mehr.")
             room_id = room_id or uuid4().hex
             previous = self.entities.get(room_id)
-            coordinator = ThermoControlCoordinator(self.hass, RoomConfig(room_id, validated))
+            coordinator = ThermoControlCoordinator(
+                self.hass, RoomConfig(room_id, validated), manager=self
+            )
             await coordinator.async_initialize()
             candidate = {**self.rooms, room_id: validated}
             # Persist before publishing or removing a working room. Failed disk
@@ -151,7 +175,10 @@ class RoomManager:
                 coordinator.preset = previous.coordinator.preset
                 coordinator.window_blocked = previous.coordinator.window_blocked
                 coordinator._calibration = deepcopy(previous.coordinator._calibration)
-                low, high = coordinator.temperature_limits()
+                coordinator.controller.restore(
+                    previous.coordinator.controller.dump(), dt_util.utcnow().timestamp()
+                )
+                low, high = coordinator.base_temperature_limits()
                 coordinator.target = min(high, max(low, coordinator.target))
                 coordinator.manual_target = min(high, max(low, coordinator.manual_target))
                 if getattr(previous, "hass", None) is not None:
@@ -192,13 +219,109 @@ class RoomManager:
 
     @callback
     def notify(self) -> None:
-        async_dispatcher_send(self.hass, SIGNAL_ROOMS)
+        if not self._closed:
+            async_dispatcher_send(self.hass, SIGNAL_ROOMS)
+
+    def control_for(self, config: dict[str, Any]) -> dict[str, Any]:
+        result = dict(config)
+        if config["heating_type"] == "floor" and config["use_global_control"]:
+            result.update(self.settings["control"])
+        group = next(
+            (item for item in self.settings["groups"] if item["id"] == config["group_id"]), None
+        )
+        if group and config["heating_type"] == "floor":
+            result.update(group["control"])
+        return result
+
+    @callback
+    def schedule_reconcile(self) -> None:
+        if self._closed:
+            return
+        self._reconcile_again = True
+        if self._reconcile_task is None or self._reconcile_task.done():
+            self._reconcile_task = self.hass.async_create_task(
+                self.async_reconcile(), "thermo_control system change"
+            )
+
+    async def async_reconcile(self) -> None:
+        while self._reconcile_again and not self._closed:
+            self._reconcile_again = False
+            for entity in list(self.entities.values()):
+                try:
+                    await entity.coordinator._tick()
+                except OSError:
+                    _LOGGER.exception(
+                        "Control state could not be persisted; hardware command withheld"
+                    )
+            self.notify()
+
+    async def async_save_settings(self, config: dict[str, Any], revision: int) -> None:
+        async with self._lock:
+            self._check_revision(revision)
+            validated = validate_settings(self.hass, config)
+            ids = {group["id"] for group in validated["groups"]}
+            if any(
+                room["group_id"] and room["group_id"] not in ids for room in self.rooms.values()
+            ):
+                raise ServiceValidationError(
+                    "Vor dem Löschen einer Gruppe ihre Räume neu zuordnen."
+                )
+            await self._store.async_save(
+                {**self._payload(self.rooms, self.revision + 1), "settings": validated}
+            )
+            self.settings = validated
+            self.revision += 1
+            self.system.bind()
+            await self._sync_groups()
+            self.notify()
+            self.schedule_reconcile()
+
+    async def async_set_master_offset(self, offset: float) -> None:
+        # Read the latest document and revision under the same edit lock.
+        async with self._lock:
+            self._check_revision(self.revision)
+            settings = validate_settings(
+                self.hass, {**self.settings, "master_offset": offset}, check_entities=False
+            )
+            await self._store.async_save(
+                {**self._payload(self.rooms, self.revision + 1), "settings": settings}
+            )
+            self.settings = settings
+            self.revision += 1
+            self.notify()
+            self.schedule_reconcile()
+
+    async def _sync_groups(self) -> None:
+        from .groups import ThermoControlGroup
+
+        configured = {group["id"]: group for group in self.settings["groups"]}
+        for group_id in list(self.groups):
+            entity = self.groups[group_id]
+            if group_id not in configured:
+                if getattr(entity, "hass", None):
+                    await entity.async_remove()
+                if entity.entity_id and er.async_get(self.hass).async_get(entity.entity_id):
+                    er.async_get(self.hass).async_remove(entity.entity_id)
+                del self.groups[group_id]
+            else:
+                entity._attr_name = configured[group_id]["name"]
+        for group_id, config in configured.items():
+            if group_id not in self.groups:
+                entity = self.groups[group_id] = ThermoControlGroup(self, group_id, config["name"])
+                self._add_entities([entity])
 
     @callback
     def snapshot(self) -> dict[str, Any]:
         return {
             "defaults": deepcopy(DEFAULTS),
             "device_defaults": deepcopy(DEVICE_DEFAULTS),
+            "settings": deepcopy(self.settings),
+            "system_defaults": deepcopy(SYSTEM_DEFAULTS),
+            "system": self.system.snapshot(),
+            "groups": [
+                {"id": group_id, "entity_id": group.entity_id}
+                for group_id, group in self.groups.items()
+            ],
             "revision": self.revision,
             "rooms": [
                 {
@@ -214,5 +337,9 @@ class RoomManager:
 
     async def async_shutdown(self) -> None:
         self._closed = True
+        self.system.close()
+        if self._reconcile_task and not self._reconcile_task.done():
+            self._reconcile_task.cancel()
+            await asyncio.gather(self._reconcile_task, return_exceptions=True)
         for entity in list(self.entities.values()):
             await entity.coordinator.async_shutdown()

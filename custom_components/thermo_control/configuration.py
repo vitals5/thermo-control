@@ -29,6 +29,7 @@ from .const import (
     CONF_TOLERANCE,
     CONF_TRVS,
     CONF_WINDOWS,
+    CONTROL_DEFAULTS,
     DEFAULTS,
     DEVICE_DEFAULTS,
     DOMAIN,
@@ -59,8 +60,30 @@ DEVICE_SCHEMA = vol.Schema(
         vol.Optional(CONF_CALIBRATION_STEP, default=0.5): _range(0.1, 1),
     }
 )
+CONTROL_FIELDS = {
+    "trend_window": _range(30, 60),
+    "inertia": _range(0, 2),
+    "lookahead": _range(0, 240),
+    "cycle_minutes": _range(30, 60),
+    "minimum_on": _range(60, 1800),
+    "minimum_off": _range(60, 1800),
+    "proportional_band": _range(0.5, 5),
+    "integral_hours": _range(1, 24),
+    "tolerance": _range(0.1, 2),
+}
+CONTROL_SCHEMA = vol.Schema({vol.Required(key): rule for key, rule in CONTROL_FIELDS.items()})
 ROOM_SCHEMA = vol.Schema(
     {
+        vol.Optional("heating_type", default="radiator"): vol.In(("radiator", "floor")),
+        vol.Optional("floor", default=""): vol.All(str, vol.Length(max=100)),
+        vol.Optional("group_id", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
+        vol.Optional("use_global_control", default=True): bool,
+        vol.Optional("use_global_calibration", default=False): bool,
+        **{
+            vol.Optional(key, default=CONTROL_DEFAULTS[key]): rule
+            for key, rule in CONTROL_FIELDS.items()
+            if key != CONF_TOLERANCE
+        },
         vol.Required("name"): vol.All(str, vol.Length(min=1, max=100)),
         vol.Required(CONF_TRVS): vol.All([cv.entity_id], vol.Length(min=1, max=32)),
         vol.Optional(CONF_SENSOR, default=None): vol.Any(None, "", cv.entity_id),
@@ -80,6 +103,94 @@ ROOM_SCHEMA = vol.Schema(
 )
 
 
+def validate_control(config: dict[str, Any]) -> dict[str, Any]:
+    result = CONTROL_SCHEMA(config)
+    if result["minimum_on"] + result["minimum_off"] > result["cycle_minutes"] * 60:
+        raise vol.Invalid("Mindestlauf- und Ruhezeit müssen zusammen in einen Zyklus passen.")
+    return result
+
+
+def validate_settings(
+    hass: HomeAssistant, config: dict[str, Any], *, check_entities=True
+) -> dict[str, Any]:
+    """Validate the complete, atomic system settings document."""
+    optional_entity = vol.Any(None, "", cv.entity_id)
+    schema = vol.Schema(
+        {
+            vol.Required("master_offset"): _range(-5, 5),
+            vol.Required("calibration_interval"): _range(300, 86400),
+            vol.Required("control"): validate_control,
+            vol.Required("groups"): vol.All(
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("id"): vol.All(str, vol.Match(r"^[a-zA-Z0-9_-]{1,64}$")),
+                            vol.Required("name"): vol.All(str, vol.Length(min=1, max=100)),
+                            vol.Optional("control", default=dict): vol.Any({}, validate_control),
+                        }
+                    )
+                ],
+                vol.Length(max=64),
+            ),
+            vol.Required("heat_pump"): vol.Schema(
+                {
+                    **{
+                        vol.Required(key): optional_entity
+                        for key in (
+                            "flow_sensor",
+                            "target_sensor",
+                            "mode_entity",
+                            "compressor_entity",
+                        )
+                    },
+                    vol.Required("automatic_states"): vol.All(
+                        [vol.All(str, vol.Length(min=1, max=64))], vol.Length(min=1, max=20)
+                    ),
+                    vol.Required("interlock"): bool,
+                    vol.Required("minimum_flow"): _range(15, 60),
+                    vol.Required("flow_margin"): _range(0, 15),
+                }
+            ),
+        }
+    )
+    try:
+        result = schema(deepcopy(config))
+        ids = [group["id"] for group in result["groups"]]
+        if len(ids) != len(set(ids)) or any(
+            not group["name"].strip() for group in result["groups"]
+        ):
+            raise vol.Invalid("Gruppen benötigen eindeutige IDs und einen Namen.")
+        hp = result["heat_pump"]
+        for key, domains in (
+            ("flow_sensor", ("sensor",)),
+            ("target_sensor", ("sensor",)),
+            ("mode_entity", ("sensor", "select", "climate")),
+            ("compressor_entity", ("binary_sensor",)),
+        ):
+            entity_id = hp[key] = hp[key] or None
+            if not entity_id:
+                continue
+            state = hass.states.get(entity_id)
+            if entity_id.split(".")[0] not in domains or (check_entities and state is None):
+                raise vol.Invalid(f"Ungültige Wärmepumpen-Entität: {entity_id}")
+            if (
+                check_entities
+                and key in ("flow_sensor", "target_sensor")
+                and state.attributes.get("unit_of_measurement") not in ("°C", "°F", "K")
+            ):
+                raise vol.Invalid("Vorlaufsensoren benötigen eine Temperatureinheit.")
+        if hp["interlock"] and (not hp["flow_sensor"] or not hp["mode_entity"]):
+            raise vol.Invalid("Die Freigabe benötigt Vorlauf- und Betriebsmodus-Entitäten.")
+        hp["automatic_states"] = sorted(
+            {value.strip().casefold() for value in hp["automatic_states"] if value.strip()}
+        )
+        if not hp["automatic_states"]:
+            raise vol.Invalid("Mindestens ein Automatik-Zustand ist erforderlich.")
+        return result
+    except vol.Invalid as err:
+        raise ServiceValidationError(f"Ungültige Systemeinstellungen: {err}") from err
+
+
 def validate_room(
     hass: HomeAssistant,
     config: dict[str, Any],
@@ -94,6 +205,10 @@ def validate_room(
     except vol.Invalid as err:
         raise ServiceValidationError(f"Ungültige Raumkonfiguration: {err}") from err
     result["name"] = result["name"].strip()
+    try:
+        validate_control({key: result[key] for key in CONTROL_FIELDS})
+    except vol.Invalid as err:
+        raise ServiceValidationError(str(err)) from err
     trvs = result[CONF_TRVS]
     if not result["name"] or len(trvs) != len(set(trvs)):
         raise ServiceValidationError("Raumname und unterschiedliche Thermostate sind erforderlich.")

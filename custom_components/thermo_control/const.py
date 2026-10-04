@@ -23,7 +23,40 @@ CONF_TOLERANCE = "tolerance"
 CONF_FROST = "frost_temperature"
 PRESETS = ("none", "eco", "comfort", "boost", "away")
 PRESET_DEFAULTS = {"none": 20.0, "eco": 17.0, "comfort": 21.0, "boost": 25.0, "away": 15.0}
+CONTROL_DEFAULTS = {
+    "trend_window": 45,
+    "inertia": 1.0,
+    "lookahead": 180,
+    "cycle_minutes": 45,
+    "minimum_on": 300,
+    "minimum_off": 300,
+    "proportional_band": 2.0,
+    "integral_hours": 6.0,
+    "tolerance": 0.2,
+}
+SYSTEM_DEFAULTS = {
+    "master_offset": 0.0,
+    "control": CONTROL_DEFAULTS,
+    "calibration_interval": 600,
+    "groups": [],
+    "heat_pump": {
+        "flow_sensor": None,
+        "target_sensor": None,
+        "mode_entity": None,
+        "compressor_entity": None,
+        "automatic_states": ["automatic", "automatik", "automatisch", "auto"],
+        "interlock": False,
+        "minimum_flow": 25.0,
+        "flow_margin": 2.0,
+    },
+}
 DEFAULTS = {
+    "heating_type": "radiator",
+    "floor": "",
+    "group_id": None,
+    "use_global_control": True,
+    "use_global_calibration": False,
+    **CONTROL_DEFAULTS,
     CONF_SENSOR: None,
     CONF_WINDOWS: [],
     CONF_INTERVAL: 600,

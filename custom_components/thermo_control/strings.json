@@ -11,5 +11,17 @@
       "single_instance_allowed": "Thermo Control is already configured.",
       "already_in_progress": "Thermo Control is already being added."
     }
+  },
+  "services": {
+    "set_master_offset": {
+      "name": "Set master temperature offset",
+      "description": "Shift all room setpoints without changing their base temperatures.",
+      "fields": {
+        "offset": {
+          "name": "Offset",
+          "description": "Temperature difference in Celsius (−5 to +5 °C)."
+        }
+      }
+    }
   }
 }

@@ -1,6 +1,12 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `1.2.1`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.0`.
+
+Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
+
+Bestehende Räume bleiben bei ihrer bisherigen Thermostatregelung. Für Fußbodenheizung im Raumeditor **Heizungstyp → Fußbodenheizung** wählen. Globale FBH-Parameter und Luxtronik-Zuordnungen werden im Tab **Einstellungen** eingerichtet; eigene Raum- und Gruppenparameter sind optional. Gruppen erhalten Climate-Entitäten; Raumventile melden den tatsächlichen `hvac_action` ihrer Geräte.
+
+Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wärmebedarf** als Sensoren. Die optionale Freigabe erlaubt Raumventile nur im konfigurierten Automatikmodus und mit ausreichend warmem Vorlauf. Verdichter- und Warmwassersteuerung bleiben beim Luxtronik-Controller. Die Mindestlauf-/Ruhezeiten gelten für Raumventile. Für Diagramme müssen **History/Recorder** die Raum-/Gruppen-Climates und den Vorlaufsensor aufzeichnen; das Panel nutzt deren Historie ohne externe Bibliotheken.
 
 ## Installation und Seitenleisten-Panel
 
@@ -25,9 +31,9 @@ Ohne externen Raumtemperatursensor verwendet die Zone `current_temperature` ihre
 
 Die Panel-Übersicht zeigt aktuelle Raumtemperatur, Sollwert, Heizstatus, Ventilöffnung und Fensterstatus. Heizung und Presets sind direkt steuerbar. **Konfigurieren** öffnet den Raumeditor; **Raum löschen** entfernt den Raum und seine virtuelle Climate-Entität nach Bestätigung. Physische Thermostate bleiben bestehen und behalten ihren letzten Hardwarezustand. Für ein Abschalten vor dem Entfernen im Panel zuerst **Aus** wählen.
 
-Beim Entladen der Integration werden Panel, Climate-Entitäten, Timer und Listener entfernt. Die Raumkonfigurationen bleiben für ein erneutes Laden erhalten.
+Beim Entladen der Integration werden Panel, Climate-/Sensor-Entitäten, Timer und Listener entfernt. Die Raumkonfigurationen bleiben für ein erneutes Laden erhalten.
 
-Alle Raumkonfigurationen werden in HA-Storage unter `.storage/thermo_control.rooms` gespeichert. Kalibrierungszeitstempel bleiben je Raum separat gespeichert. Stabile Raum-IDs erhalten die Climate-Entitätszuordnung beim Bearbeiten. Parallele Bearbeitungen werden mit einer Revisionsprüfung erkannt. Schreibfehler verändern eine bereits laufende Raumkonfiguration nicht.
+Raum-, Gruppen- und Systemeinstellungen werden in HA-Storage unter `.storage/thermo_control.rooms` gespeichert. Kalibrierungszeitstempel bleiben je Raum separat gespeichert. Stabile Raum-IDs erhalten die Climate-Entitätszuordnung beim Bearbeiten. Parallele Bearbeitungen werden mit einer Revisionsprüfung erkannt. Schreibfehler verändern eine bereits laufende Raumkonfiguration nicht.
 
 Vorhandene Config-Entry-Räume aus Version 1.0 werden einmalig mit ihren IDs und Einstellungen in den Panel-Speicher übernommen. Es wird dabei kein Flow aufgerufen. Bei mehreren alten Einträgen lädt einer das gemeinsame Panel; mindestens ein Eintrag muss aktiviert bleiben. Im Panel gelöschte Räume werden aus alten Einträgen nicht erneut importiert.
 
@@ -88,7 +94,7 @@ Die lokale Fenstererkennung und die Kindersicherung der Geräte werden nicht umg
 
 ## Koordination und Presets
 
-Die virtuelle Entität ist die führende Stelle für Sollwert und HVAC-Modus. Abweichende physische Einstellungen werden wieder synchronisiert. Geräte-Presets werden, soweit unterstützt, auf `manual` gesetzt, damit lokale Zeitpläne die Raumvorgabe nicht ersetzen. Die Raum-Presets verwenden einheitliche, konfigurierbare Sollwerte statt uneinheitlicher Firmware-Presets:
+Die virtuelle Raum-Entität ist die führende Stelle für Sollwert und HVAC-Modus. Gruppen übertragen gemeinsame Vorgaben an ihre Räume. Abweichende physische Einstellungen werden wieder synchronisiert. Geräte-Presets werden, soweit unterstützt, auf `manual` gesetzt, damit lokale Zeitpläne die Raumvorgabe nicht ersetzen. Die Raum-Presets verwenden einheitliche, konfigurierbare Sollwerte statt uneinheitlicher Firmware-Presets:
 
 | Preset | Standard |
 | --- | --- |
@@ -98,7 +104,7 @@ Die virtuelle Entität ist die führende Stelle für Sollwert und HVAC-Modus. Ab
 | `boost` | 25 °C |
 | `away` | 15 °C |
 
-Die native TRV-Regelung bleibt aktiv. Die konfigurierte Hysterese bestimmt den geschätzten `hvac_action`-Status (`heating`/`idle`) aus der verwendeten Raumtemperatur; sie erzeugt keine zusätzlichen Heat/Off-Schaltzyklen. `boost` ist ein erhöhtes Raumziel und bleibt bis zum nächsten Presetwechsel aktiv.
+Bei Heizkörpern bleibt die native TRV-Regelung aktiv; die Hysterese schätzt den Wärmebedarf. Der tatsächliche `hvac_action`-Status stammt aus den physischen Geräten. FBH-Räume verwenden dagegen die vorausschauende PI/TPI-Regelung aus der Spezifikation. `boost` ist ein erhöhtes Raumziel und bleibt bis zum nächsten Presetwechsel aktiv.
 
 `valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `temperature_source` (`external_sensor` / `thermostats`), `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
 
@@ -106,7 +112,7 @@ Ein fehlendes TRV blockiert die übrigen Geräte nicht. Wiederholungen nicht bes
 
 ## Servicebeispiele
 
-Es werden die normalen Home-Assistant-Climate-Services verwendet; `services.yaml` enthält deshalb eine leere Zuordnung.
+Räume und Gruppen verwenden die normalen Home-Assistant-Climate-Services. Zusätzlich setzt `thermo_control.set_master_offset` die globale Sollwertverschiebung mit `{offset: -2}`. Sie ist reversibel und wird gespeichert.
 
 ```yaml
 action: climate.set_temperature

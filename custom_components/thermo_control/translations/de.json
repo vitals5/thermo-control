@@ -11,5 +11,17 @@
       "single_instance_allowed": "Thermo Control ist bereits eingerichtet.",
       "already_in_progress": "Das Hinzufügen von Thermo Control läuft bereits."
     }
+  },
+  "services": {
+    "set_master_offset": {
+      "name": "Master-Sollwertverschiebung setzen",
+      "description": "Verschiebt alle Raum-Sollwerte, ohne die Basis-Sollwerte zu verändern.",
+      "fields": {
+        "offset": {
+          "name": "Verschiebung",
+          "description": "Temperaturdifferenz in Celsius (−5 bis +5 °C)."
+        }
+      }
+    }
   }
 }

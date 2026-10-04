@@ -54,6 +54,7 @@ from .const import (
     RETRY_SECONDS,
     SERVICE_TIMEOUT,
 )
+from .control import FloorController
 from .helpers import (
     calibration_value,
     celsius,
@@ -70,7 +71,9 @@ _LOGGER = logging.getLogger(__name__)
 class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Serialize intent and side effects; telemetry never overrides room intent."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry | RoomConfig) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry | RoomConfig, *, manager=None
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -78,6 +81,11 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry if isinstance(entry, ConfigEntry) else None,
         )
         self.entry = entry
+        self.manager = manager
+        self.controller = FloorController()
+        self.heat_demand = 0.0
+        self.heat_permitted = True
+        self.interlock_reason = None
         self.config = {**DEFAULTS, **entry.data, **entry.options}
         self.trvs: list[str] = self.config[CONF_TRVS]
         self.devices: dict[str, dict[str, Any]] = {}
@@ -124,6 +132,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if stored:
             self._calibration = stored.get("calibration", {})
             self.window_blocked = bool(stored.get("window_blocked", False))
+            self.controller.restore(stored.get("control", {}), dt_util.utcnow().timestamp())
         self._publish()
 
     async def async_start(self) -> None:
@@ -268,6 +277,21 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 highs.append(high)
         return max(lows), min(highs)
 
+    @property
+    def effective_target(self) -> float:
+        low, high = self.temperature_limits()
+        offset = self.manager.settings["master_offset"] if self.manager else 0
+        return min(high, max(low, self.target + offset))
+
+    def base_temperature_limits(self) -> tuple[float, float]:
+        low, high = self.temperature_limits()
+        # A manual effective setpoint at a hardware boundary can have a base
+        # outside that boundary while a valid master offset is applied.
+        return low - 5, high + 5
+
+    def control_config(self) -> dict[str, Any]:
+        return self.manager.control_for(self.config) if self.manager else self.config
+
     def _publish(self) -> None:
         positions: list[float] = []
         device_status = {}
@@ -281,6 +305,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 positions.append(position)
             device_status[entity_id] = {
                 "available": state is not None,
+                "hvac_action": state.attributes.get("hvac_action") if state else None,
                 "position": position,
                 "child_lock": state.attributes.get("child_lock") if state else None,
                 "window_detection": state.attributes.get(
@@ -292,14 +317,23 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "error": self._errors.get(entity_id),
             }
         room = self._room_temperature()
-        if self.mode == HVACMode.OFF or self.window_blocked or room is None:
+        actions = [
+            device["hvac_action"] for device in device_status.values() if device["available"]
+        ]
+        if HVACAction.HEATING in actions:
+            action = (
+                HVACAction.HEATING
+            )  # Actual valve activity, including delayed off acknowledgements.
+        elif HVACAction.IDLE in actions:
+            action = HVACAction.IDLE
+        elif HVACAction.OFF in actions or self.mode == HVACMode.OFF:
             action = HVACAction.OFF
         else:
-            action = HVACAction.HEATING if self._demand else HVACAction.IDLE
+            action = None  # A missing hardware report is never invented from demand.
         self.async_set_updated_data(
             {
                 "temperature": room,
-                "target": self.target,
+                "target": self.effective_target,
                 "mode": HVACMode.OFF if self.window_blocked else self.mode,
                 "action": action,
                 "preset": self.preset,
@@ -307,20 +341,65 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "available": room is not None
                 and any(self._state(entity_id) for entity_id in self.trvs),
                 "devices": device_status,
+                "heat_demand": self.heat_demand,
+                "heat_permitted": self.heat_permitted,
+                "interlock_reason": self.interlock_reason,
+                "temperature_rate": self.controller.rate,
+                "predicted_temperature": self.controller.predicted,
+                "pre_shutoff": self.controller.pre_shutoff,
+                "pwm_active": self.controller.active,
+                "duty_cycle": self.controller.cycle_duty * 100,
             }
         )
+        if (
+            self.manager
+            and self.entry.entry_id in self.manager.entities
+            and self.manager.entities[self.entry.entry_id].coordinator is self
+        ):
+            self.manager.notify()
 
     async def _reconcile(self) -> None:
         room = self._room_temperature()
-        enabled = self.mode == HVACMode.HEAT and not self.window_blocked and room is not None
-        if not enabled:
-            self._demand = False
-        elif room <= self.target - self.config[CONF_TOLERANCE]:
-            self._demand = True
-        elif room >= self.target + self.config[CONF_TOLERANCE]:
-            self._demand = False
-        # TRVs keep their own proportional regulation. Hysteresis governs action
-        # reporting, not repetitive heat/off motor commands around the setpoint.
+        enabled = (
+            self.mode == HVACMode.HEAT
+            and not self.window_blocked
+            and room is not None
+            and any(self._state(entity_id) for entity_id in self.trvs)
+        )
+        self.heat_permitted, self.interlock_reason = (
+            self.manager.system.permit(room) if self.manager else (True, None)
+        )
+        config = self.control_config()
+        previous_control = (self.controller.active, self.controller.switched_at)
+        if self.config["heating_type"] == "floor":
+            output = self.controller.update(
+                dt_util.utcnow().timestamp(),
+                room,
+                self.effective_target,
+                enabled,
+                config,
+                permitted=self.heat_permitted,
+            )
+            self.heat_demand = self.controller.demand * 100
+            self._demand = output
+        else:
+            output = enabled and self.heat_permitted
+            if not enabled:
+                self._demand = False
+            elif room <= self.effective_target - config[CONF_TOLERANCE]:
+                self._demand = True
+            elif room >= self.effective_target + config[CONF_TOLERANCE]:
+                self._demand = False
+            self.heat_demand = 100.0 if self._demand else 0.0
+        # Persist transitions before hardware calls so minimum dwell survives restart.
+        if previous_control != (self.controller.active, self.controller.switched_at):
+            try:
+                await self._store.async_save(self._storage_data())
+            except OSError:
+                self.controller.active, self.controller.switched_at = previous_control
+                raise
+        elif self.config["heating_type"] == "floor":
+            self._store.async_delay_save(self._storage_data, 60)
         self._publish()
         for entity_id, device in self.devices.items():
             state = self._state(entity_id)
@@ -328,7 +407,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             self._errors.pop(entity_id, None)
             try:
-                await self._sync_trv(entity_id, device, state, enabled and not self.window_blocked)
+                await self._sync_trv(entity_id, device, state, output and not self.window_blocked)
                 if enabled and not self._windows_open():
                     await self._calibrate(entity_id, device, state, room)
             except (HomeAssistantError, TimeoutError, ValueError) as err:
@@ -379,7 +458,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"entity_id": entity_id, "preset_mode": "manual"},
             )
         unit = state.attributes.get("temperature_unit", self.hass.config.units.temperature_unit)
-        wanted = self.target if enabled else float(self.config[CONF_FROST])
+        wanted = self.effective_target if enabled else float(self.config[CONF_FROST])
         low = celsius(state.attributes.get("min_temp"), unit)
         high = celsius(state.attributes.get("max_temp"), unit)
         wanted = min(high if high is not None else 35, max(low if low is not None else 5, wanted))
@@ -423,7 +502,12 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow()
         if last := saved.get("attempted_at"):
             last_date = dt_util.parse_datetime(last)
-            if last_date and (now - last_date).total_seconds() < self.config[CONF_INTERVAL]:
+            interval = (
+                self.manager.settings[CONF_INTERVAL]
+                if self.manager and self.config["use_global_calibration"]
+                else self.config[CONF_INTERVAL]
+            )
+            if last_date and (now - last_date).total_seconds() < interval:
                 return
         number = self._state(number_id)
         if number_id and number is None:
@@ -489,7 +573,11 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _storage_data(self) -> dict[str, Any]:
-        return {"calibration": self._calibration, "window_blocked": self.window_blocked}
+        return {
+            "calibration": self._calibration,
+            "window_blocked": self.window_blocked,
+            "control": self.controller.dump(),
+        }
 
     @callback
     def _save_later(self) -> None:

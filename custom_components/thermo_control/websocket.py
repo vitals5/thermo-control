@@ -85,7 +85,54 @@ async def ws_delete_room(
         connection.send_result(msg["id"])
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/save_settings",
+        vol.Required("config"): dict,
+        vol.Required("revision"): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save_settings(hass, connection, msg):
+    try:
+        await hass.data[DOMAIN].async_save_settings(msg["config"], msg["revision"])
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except OSError:
+        connection.send_error(
+            msg["id"], "storage_error", "Systemeinstellungen konnten nicht gespeichert werden."
+        )
+    else:
+        connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/master_offset", vol.Required("offset"): vol.Coerce(float)}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_master_offset(hass, connection, msg):
+    try:
+        await hass.data[DOMAIN].async_set_master_offset(msg["offset"])
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except OSError:
+        connection.send_error(
+            msg["id"], "storage_error", "Sollwertverschiebung konnte nicht gespeichert werden."
+        )
+    else:
+        connection.send_result(msg["id"])
+
+
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
-    for command in (ws_rooms, ws_subscribe, ws_save_room, ws_delete_room):
+    for command in (
+        ws_rooms,
+        ws_subscribe,
+        ws_save_room,
+        ws_delete_room,
+        ws_save_settings,
+        ws_master_offset,
+    ):
         websocket_api.async_register_command(hass, command)

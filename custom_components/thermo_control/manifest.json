@@ -1,6 +1,7 @@
 {
   "domain": "thermo_control",
   "name": "Thermo Control",
+  "after_dependencies": ["history"],
   "codeowners": [
     "@vitals5"
   ],
@@ -11,6 +12,7 @@
     "http",
     "number",
     "panel_custom",
+    "sensor",
     "websocket_api"
   ],
   "documentation": "https://github.com/vitals5/thermo-control",
@@ -19,5 +21,5 @@
   "issue_tracker": "https://github.com/vitals5/thermo-control/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "1.2.1"
+  "version": "2.0.0"
 }

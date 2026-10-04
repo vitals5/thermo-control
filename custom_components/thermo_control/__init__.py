@@ -12,15 +12,17 @@ from homeassistant.helpers.typing import ConfigType
 from .const import DOMAIN
 from .manager import RoomManager
 from .panel import async_register_panel
+from .services import async_register_services
 from .websocket import async_register_commands
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
-PLATFORMS = [Platform.CLIMATE]
+PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the API and optionally import the old empty YAML bootstrap."""
     async_register_commands(hass)
+    async_register_services(hass)
     if DOMAIN in config:
         hass.async_create_task(
             hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IMPORT}, data={})

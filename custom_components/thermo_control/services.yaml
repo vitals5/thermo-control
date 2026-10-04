@@ -1,4 +1,11 @@
-# Thermo Control exposes standard climate services only:
-# climate.set_temperature, climate.set_hvac_mode, climate.set_preset_mode,
-# climate.turn_on and climate.turn_off. No separate domain services are needed.
-{}
+set_master_offset:
+  fields:
+    offset:
+      required: true
+      selector:
+        number:
+          min: -5
+          max: 5
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider

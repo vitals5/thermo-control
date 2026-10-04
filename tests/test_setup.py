@@ -45,7 +45,7 @@ async def test_empty_entry_setup_unload_and_reload(hass, hass_storage):
         assert manager.rooms == {}
         assert manager.config_entry_id == entry.entry_id
         assert manager.revision == 0
-        forward.assert_awaited_once_with(entry, ["climate"])
+        forward.assert_awaited_once_with(entry, ["climate", "sensor"])
         assert await async_unload_entry(hass, entry)
         assert manager._closed
         remove.assert_called_once_with(hass, DOMAIN)

@@ -1,7 +1,15 @@
 /* Local Home Assistant custom panel. No build step or external resources. */
 const PRESETS = { none: "Manuell", eco: "Eco", comfort: "Komfort", boost: "Boost", away: "Abwesend" };
 const NUMBERS = [
-  ["tolerance", "Hysterese für den Heizstatus", "°C", 0.1, 2, 0.1],
+  ["tolerance", "Hysterese", "°C", 0.1, 2, 0.1],
+  ["trend_window", "Trend-Zeitfenster", "Min.", 30, 60, 1],
+  ["inertia", "Trägheitsfaktor", "Faktor", 0, 2, 0.1],
+  ["lookahead", "Maximale Vorlaufzeit", "Min.", 0, 240, 5],
+  ["cycle_minutes", "PWM-Zyklus", "Min.", 30, 60, 1],
+  ["minimum_on", "Mindestlaufzeit der Ventile", "s", 60, 1800, 30],
+  ["minimum_off", "Mindestruhezeit der Ventile", "s", 60, 1800, 30],
+  ["proportional_band", "Proportionalband", "°C", 0.5, 5, 0.1],
+  ["integral_hours", "Integrationszeit", "h", 1, 24, 0.5],
   ["calibration_interval", "Mindestintervall der Kalibrierung", "s", 300, 86400, 1],
   ["calibration_threshold", "Mindeständerung des Offsets", "°C", 0.1, 5, 0.1],
   ["window_open_delay", "Verzögerung bis zum Abschalten", "s", 0, 3600, 1],
@@ -14,6 +22,9 @@ const DEVICE_NUMBERS = [
   ["calibration_max", "Maximaler Offset", "°C", 0, 10, 0.1],
   ["calibration_step", "Schrittweite", "°C", 0.1, 1, 0.1],
 ];
+const CONTROL_VALUES = { tolerance: 0.2, trend_window: 45, inertia: 1, lookahead: 180, cycle_minutes: 45, minimum_on: 300, minimum_off: 300, proportional_band: 2, integral_hours: 6 };
+const CONTROL_NUMBERS = NUMBERS.filter(([key]) => key in CONTROL_VALUES);
+const SYSTEM_VALUES = { master_offset: 0, calibration_interval: 600, control: CONTROL_VALUES, groups: [], heat_pump: { flow_sensor: null, target_sensor: null, mode_entity: null, compressor_entity: null, automatic_states: ["automatic", "automatik", "automatisch", "auto"], interlock: false, minimum_flow: 25, flow_margin: 2 } };
 const create = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -115,7 +126,7 @@ class ThermoControlEntityPicker extends HTMLElement {
   _candidates() {
     const { domain, temperatureOnly, excluded } = this._options;
     return Object.keys(this._hass?.states || {}).filter((id) => {
-      if (!id.startsWith(`${domain}.`) || excluded?.has(id)) return false;
+      if (!(Array.isArray(domain) ? domain : [domain]).some((item) => id.startsWith(`${item}.`)) || excluded?.has(id)) return false;
       return !temperatureOnly || ["°C", "°F", "K"].includes(this._hass.states[id].attributes?.unit_of_measurement);
     });
   }
@@ -227,6 +238,8 @@ class ThermoControlPanel extends HTMLElement {
     this._connection = null;
     this._generation = 0;
     this._busy = false;
+    this._tab = "overview";
+    this._historyGeneration = 0;
   }
 
   set hass(value) {
@@ -235,6 +248,7 @@ class ThermoControlPanel extends HTMLElement {
       this._connect();
       this._updateCards();
       this._updatePickers();
+      this._updateSystem();
     }
   }
   get hass() { return this._hass; }
@@ -244,9 +258,12 @@ class ThermoControlPanel extends HTMLElement {
   connectedCallback() {
     if (!this.shadowRoot.hasChildNodes()) this._build();
     this._connect();
+    this._historyTimer = setInterval(() => { if (this._tab === "graphs") this._loadHistory(); }, 60000);
   }
 
   disconnectedCallback() {
+    clearInterval(this._historyTimer);
+    this._historyGeneration += 1;
     this._generation += 1;
     if (this._unsubscribe) this._unsubscribe();
     this._unsubscribe = null;
@@ -279,8 +296,13 @@ class ThermoControlPanel extends HTMLElement {
   }
 
   _receive(data) {
-    this._data = data;
-    this._renderCards();
+    const fingerprint = JSON.stringify([data.revision, data.rooms, data.groups]);
+    const changed = this._fingerprint !== fingerprint;
+    this._fingerprint = fingerprint;
+    this._data = { ...data, settings: data.settings || structuredClone(SYSTEM_VALUES) };
+    if (changed) { this._renderCards(); this._renderAssignments(); this._renderGroupCards(); this._graphChoices(); }
+    else this._updateCards();
+    this._updateSystem();
     this._updatePickers();
     this.shadowRoot.querySelector("#connection").textContent = "Mit Home Assistant verbunden";
     this.shadowRoot.querySelector("#add-room").disabled = false;
@@ -296,17 +318,23 @@ class ThermoControlPanel extends HTMLElement {
         .error{border:1px solid #d89e91;background:var(--card-background-color,#fff);color:var(--error-color,#ae4933);border-radius:9px;padding:13px 16px;margin-bottom:20px}.error:empty{display:none}dialog{border:1px solid var(--divider-color,#d4ded5);border-radius:16px;background:var(--card-background-color,#fff);color:inherit;padding:0;max-width:850px;width:calc(100% - 32px);max-height:90vh;box-shadow:0 25px 80px #0003}dialog::backdrop{background:#10261b66}.dialog-header{display:flex;justify-content:space-between;align-items:center;padding:23px 26px;border-bottom:1px solid var(--divider-color,#dde5de)}.dialog-header p{font-size:12px;margin-top:6px}.dialog-body{padding:25px 26px;max-height:65vh;overflow:auto}.fields{display:grid;grid-template-columns:1fr 1fr;gap:20px}.wide{grid-column:1/-1}.help{font-size:11px;line-height:1.5;font-weight:400;color:var(--secondary-text-color,#69786e)}details{border:1px solid var(--divider-color,#dce4dd);border-radius:10px;margin-top:24px;padding:16px}summary{cursor:pointer;font-size:14px;font-weight:600}details .fields{margin-top:20px}.device{margin-top:22px}.device h3{font-size:14px;margin:0 0 16px}.checkbox{flex-direction:row;align-items:center;font-size:12px;font-weight:400}.dialog-footer{display:flex;justify-content:flex-end;align-items:center;gap:10px;border-top:1px solid var(--divider-color,#dde5de);padding:16px 26px}.danger{color:var(--error-color,#b4523d);margin-right:auto}.confirm{padding:24px}.confirm p{margin:16px 0 24px}.confirm-actions{display:flex;justify-content:flex-end;gap:10px}.saving{font-size:12px;color:var(--secondary-text-color,#69786e)}[hidden]{display:none!important}
         @media(max-width:650px){main{padding:24px 16px}.toolbar{padding:12px 16px}.menu{display:block}.brand{display:none}.intro{align-items:flex-start}h1{font-size:26px}.intro p{font-size:13px}.intro button{white-space:nowrap;padding:9px 11px;font-size:12px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.dialog-body{padding:20px 18px}.dialog-header,.dialog-footer{padding:16px 18px}.wide{grid-column:auto}.version{font-size:11px}}
       </style>
-      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 1.2.1</span></header>
+      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.0.0</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div><button class="primary" id="add-room" disabled>+ Raum hinzufügen</button></section>
       <div id="error" class="error" role="alert"></div><section class="grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
         <label class="wide">Raumname<input name="name" required maxlength="100" placeholder="z. B. Wohnzimmer"></label>
+        <label>Etage / Zone<input name="floor" maxlength="100" placeholder="z. B. Erdgeschoss"></label>
+        <label>Gruppe<select name="group_id"><option value="">Keine Gruppe</option></select></label>
+        <label>Heizungstyp<select name="heating_type"><option value="radiator">Heizkörper / eigene Thermostatregelung</option><option value="floor">Fußbodenheizung · vorausschauend / TPI</option></select></label>
+        <label class="checkbox"><input name="use_global_control" type="checkbox"><span>Globale FBH-Parameter verwenden (Gruppenparameter haben Vorrang)</span></label>
+        <label class="checkbox wide"><input name="use_global_calibration" type="checkbox"><span>Globales Kalibrierungsintervall verwenden</span></label>
         <div><thermo-control-entity-picker name="trvs"></thermo-control-entity-picker><p class="help">Nach Namen oder Entitäts-ID suchen und Thermostate einzeln hinzufügen.</p></div>
         <div><thermo-control-entity-picker name="temperature_sensor"></thermo-control-entity-picker><p class="help">Optional. Ohne externen Sensor wird die gemessene Thermostattemperatur verwendet; bei mehreren Geräten der Mittelwert. Keine Offset-Kalibrierung.</p></div>
         <div class="wide"><thermo-control-entity-picker name="window_sensors"></thermo-control-entity-picker><p class="help">Optional. Die Heizung startet erst wieder, wenn alle Kontakte geschlossen sind.</p></div>
       </div><details id="advanced"><summary>Regelung, Verzögerungen und Presets</summary><div class="fields" id="numeric-fields"></div></details><details id="devices" open><summary>Thermostate und Kalibrierung</summary><p class="help" style="margin-top:12px">Die Offset-Kalibrierung ist nur mit externem Raumtemperatursensor aktiv. Number-Entität auswählen oder ein MQTT-Topic verwenden. Leere Felder erlauben die automatische Geräteerkennung.</p><div id="device-fields"></div></details></div><div class="dialog-footer"><button type="button" id="delete-room" class="danger" hidden>Raum löschen</button><span id="saving" class="saving" hidden>Wird gespeichert …</span><button type="button" id="cancel-editor">Abbrechen</button><button class="primary" type="submit" id="save-room">Raum speichern</button></div></form></dialog>
       <dialog id="confirm-delete" aria-labelledby="delete-title"><div class="confirm"><h2 id="delete-title">Raum löschen?</h2><p id="delete-description"></p><div class="error" id="delete-error" role="alert"></div><div class="confirm-actions"><button id="cancel-delete">Abbrechen</button><button class="danger" id="confirm-delete-button">Raum löschen</button></div></div></dialog>
     `;
+    this._extendUI();
     const root = this.shadowRoot;
     root.querySelector(".menu").onclick = () => this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     root.querySelector("#add-room").onclick = () => this._openEditor();
@@ -330,7 +358,11 @@ class ThermoControlPanel extends HTMLElement {
     container.replaceChildren();
     this._cards.clear();
     this.shadowRoot.querySelector("#empty").hidden = this._data.rooms.length > 0;
-    for (const room of this._data.rooms) {
+    let currentFloor = null;
+    const rooms = [...this._data.rooms].sort((a, b) => (a.config.floor || "Ohne Etage").localeCompare(b.config.floor || "Ohne Etage", "de") || a.config.name.localeCompare(b.config.name, "de"));
+    for (const room of rooms) {
+      const floor = room.config.floor || "Ohne Etage";
+      if (floor !== currentFloor) { const heading = create("h2", floor, "wide"); container.append(heading); currentFloor = floor; }
       const card = create("article", undefined, "card");
       card.innerHTML = `<div class="card-head"><h2></h2><button class="edit" type="button">Konfigurieren</button></div><div class="status"><span class="dot"></span><span class="status-text"></span></div><div class="measure"><div class="eyebrow">Raumtemperatur</div><span class="temperature">—</span><span class="unit">°C</span><div class="help temperature-source"></div></div><div class="metrics"><div class="metric"><span>Ventilöffnung</span><strong class="position">—</strong></div><div class="metric"><span>Thermostate</span><strong class="trv-count"></strong></div><div class="metric"><span>Fenster</span><strong class="window-status">—</strong></div></div><div class="controls"><label class="target">Solltemperatur<div class="target-row"><input type="number" class="target-input" step="0.5" aria-label="Solltemperatur"><span class="target-unit">°C</span></div></label><label>Heizung<select class="mode" aria-label="Heizung"><option value="off">Aus</option><option value="heat">Heizen</option></select></label><label>Preset<select class="preset" aria-label="Preset"></select></label></div>`;
       card.querySelector("h2").textContent = room.config.name;
@@ -340,7 +372,17 @@ class ThermoControlPanel extends HTMLElement {
       for (const [value, label] of Object.entries(PRESETS)) { const option = create("option", label); option.value = value; presets.append(option); }
       card.querySelector(".mode").onchange = (event) => this._service(room, "set_hvac_mode", { hvac_mode: event.target.value });
       presets.onchange = (event) => this._service(room, "set_preset_mode", { preset_mode: event.target.value });
-      card.querySelector(".target-input").onchange = (event) => { if (event.target.reportValidity()) this._service(room, "set_temperature", { temperature: Number(event.target.value) }); };
+      const input = card.querySelector(".target-input");
+      input.onchange = (event) => { if (event.target.reportValidity()) this._service(room, "set_temperature", { temperature: Number(event.target.value) }); };
+      const row = card.querySelector(".target-row");
+      for (const [delta, label] of [[-0.5, "Temperatur senken"], [0.5, "Temperatur erhöhen"]]) {
+        const button = create("button", delta < 0 ? "−" : "+"); button.type = "button"; button.setAttribute("aria-label", `${room.config.name}: ${label}`);
+        button.onclick = () => { const value = Math.min(Number(input.max), Math.max(Number(input.min), Number(input.value) + delta)); this._service(room, "set_temperature", { temperature: value }); };
+        row.append(button);
+      }
+      const details = create("div", "", "help control-preview"); card.append(details);
+      card.dataset.floor = room.config.floor || "Ohne Etage";
+      card.querySelector(".card-head").before(create("div", room.config.floor || "Ohne Etage", "eyebrow"));
       container.append(card);
       this._cards.set(room.id, card);
     }
@@ -363,7 +405,7 @@ class ThermoControlPanel extends HTMLElement {
       card.querySelector(".target-unit").textContent = unit;
       card.querySelector(".position").textContent = Number.isFinite(attributes.valve_position) ? `${attributes.valve_position} %` : "—";
       card.querySelector(".window-status").textContent = !room.config.window_sensors?.length ? "Keine" : attributes.window_open ? "Offen" : "Geschlossen";
-      const status = !available ? "Nicht verfügbar" : attributes.window_open ? "Fensterpause" : attributes.hvac_action === "heating" ? "Heizt" : state.state === "heat" ? "Bereit" : "Ausgeschaltet";
+      const status = !available ? "Nicht verfügbar" : attributes.window_open ? "Fensterpause" : attributes.hvac_action === "heating" ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit / Leerlauf" : attributes.hvac_action === "off" || state.state === "off" ? "Ausgeschaltet" : "Heizstatus unbekannt";
       card.querySelector(".status-text").textContent = status;
       card.querySelector(".status").className = `status ${attributes.window_open ? "window" : attributes.hvac_action === "heating" ? "heating" : ""}`;
       const input = card.querySelector(".target-input");
@@ -373,7 +415,12 @@ class ThermoControlPanel extends HTMLElement {
       if (this.shadowRoot.activeElement !== mode) mode.value = attributes.desired_hvac_mode || state?.state || "off";
       const preset = card.querySelector(".preset");
       if (this.shadowRoot.activeElement !== preset) preset.value = attributes.preset_mode || "none";
-      for (const field of card.querySelectorAll("input,select")) field.disabled = !available;
+      for (const field of card.querySelectorAll("input,select,.target-row button")) field.disabled = !available;
+      const detail = card.querySelector(".control-preview");
+      const percent = Number.isFinite(attributes.heat_demand) ? `${attributes.heat_demand.toFixed(0)} % Bedarf` : "";
+      const trend = Number.isFinite(attributes.temperature_rate) ? ` · ${attributes.temperature_rate.toFixed(2)} °C/h` : "";
+      const prediction = Number.isFinite(attributes.predicted_temperature) ? ` · Prognose ${attributes.predicted_temperature.toFixed(1)} °C` : "";
+      detail.textContent = percent + trend + prediction + (attributes.pre_shutoff ? " · Vorausschauende Abschaltung" : "") + (attributes.interlock_reason ? " · Wärmepumpen-Freigabe fehlt" : "");
     }
   }
 
@@ -418,7 +465,13 @@ class ThermoControlPanel extends HTMLElement {
     const root = this.shadowRoot, form = root.querySelector("#room-form");
     root.querySelector("#form-error").textContent = "";
     root.querySelector("#editor-title").textContent = room ? "Raum konfigurieren" : "Raum hinzufügen";
+    this._draft = { ...CONTROL_VALUES, heating_type: "radiator", floor: "", group_id: null, use_global_control: true, use_global_calibration: false, ...this._draft };
     form.elements.name.value = this._draft.name;
+    form.elements.floor.value = this._draft.floor;
+    form.elements.heating_type.value = this._draft.heating_type;
+    form.elements.use_global_control.checked = this._draft.use_global_control;
+    form.elements.use_global_calibration.checked = this._draft.use_global_calibration;
+    this._groupOptions(form.elements.group_id, this._draft.group_id);
     this._configurePicker(root.querySelector('[name="trvs"]'), "trvs", "Thermostate", "climate", this._draft.trvs, { multiple: true, required: true, excluded: new Set(this._climateExclusions()) });
     this._configurePicker(root.querySelector('[name="temperature_sensor"]'), "temperature_sensor", "Externer Raumtemperatursensor (optional)", "sensor", this._draft.temperature_sensor, { temperatureOnly: true, emptyLabel: "Thermostattemperatur verwenden" });
     this._configurePicker(root.querySelector('[name="window_sensors"]'), "window_sensors", "Fenster- und Türkontakte", "binary_sensor", this._draft.window_sensors || [], { multiple: true });
@@ -476,7 +529,7 @@ class ThermoControlPanel extends HTMLElement {
   _setBusy(busy) {
     this._busy = busy;
     for (const field of this.shadowRoot.querySelectorAll("dialog input,dialog select,dialog button")) field.disabled = busy;
-    for (const picker of this.shadowRoot.querySelectorAll("thermo-control-entity-picker")) picker.disabled = busy;
+    for (const picker of this.shadowRoot.querySelectorAll("#editor thermo-control-entity-picker")) picker.disabled = busy;
     this.shadowRoot.querySelector("#saving").hidden = !busy;
   }
 
@@ -487,12 +540,13 @@ class ThermoControlPanel extends HTMLElement {
     const root = this.shadowRoot;
     // Commit exact IDs typed into the main fields before TRV changes rebuild device fields.
     for (const name of ["trvs", "temperature_sensor", "window_sensors"]) root.querySelector(`[name="${name}"]`).commit();
-    for (const picker of root.querySelectorAll("thermo-control-entity-picker")) {
+    for (const picker of root.querySelectorAll("#editor thermo-control-entity-picker")) {
       picker.commit();
       if (!picker.reportValidity()) return;
     }
     this._readDevices();
     const config = { ...this._draft, name: form.elements.name.value.trim(), trvs: this._selectedTrvs(), temperature_sensor: root.querySelector('[name="temperature_sensor"]').value || null, window_sensors: root.querySelector('[name="window_sensors"]').value };
+    Object.assign(config, { floor: form.elements.floor.value.trim(), group_id: form.elements.group_id.value || null, heating_type: form.elements.heating_type.value, use_global_control: form.elements.use_global_control.checked, use_global_calibration: form.elements.use_global_calibration.checked });
     config.devices = Object.fromEntries(config.trvs.map((id) => [id, this._draft.devices[id]]));
     for (const [name] of NUMBERS) config[name] = Number(form.elements[name].value);
     const message = { type: "thermo_control/save_room", config, revision: this._editRevision };
@@ -519,6 +573,224 @@ class ThermoControlPanel extends HTMLElement {
       this.shadowRoot.querySelector("#confirm-delete").close(); this.shadowRoot.querySelector("#editor").close();
     } catch (error) { this.shadowRoot.querySelector("#delete-error").textContent = this._message(error); }
     finally { this._setBusy(false); }
+  }
+
+  _extendUI() {
+    const root = this.shadowRoot, main = root.querySelector("main");
+    const style = create("style"); style.textContent = `
+      .tabs{display:flex;gap:8px;overflow-x:auto;margin:22px 0}.tabs button{white-space:nowrap}.tabs [aria-selected=true]{background:var(--primary-color,#287757);color:white}.system-bar,.master,.group-summary,.analytics,.settings-box,.assignments{padding:20px;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#dde5de);border-radius:14px;margin-bottom:22px}.system-bar{display:flex;flex-wrap:wrap;gap:12px 24px}.system-bar strong{display:block;margin-top:4px}.system-bar span{font-size:12px}.master{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.master label{flex:1;min-width:180px}.master input[type=range]{padding:0;accent-color:var(--primary-color,#287757)}.master output{font-size:22px}.group-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.group-summary .controls{margin-top:14px}.chart-controls{display:flex;flex-wrap:wrap;gap:16px;align-items:end}.chart-controls label{flex:1;min-width:150px}.chart-controls .checkbox{flex-direction:row}.chart{display:block;width:100%;min-height:260px;margin:20px 0 0;touch-action:pan-y}.chart text{fill:var(--secondary-text-color,#69786e);font:11px system-ui}.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;margin:14px 0}.legend span:before{content:"";display:inline-block;width:18px;height:3px;margin-right:6px;background:var(--color)}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:14px 10px;border-bottom:1px solid var(--divider-color,#dde5de)}td:first-child{min-width:150px}td .help{overflow-wrap:anywhere}td select{min-width:140px}.settings-box h2{margin-bottom:20px}.settings-box .fields{margin:18px 0}.settings-box .primary{margin-top:16px}.group-row{display:flex;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--divider-color,#dde5de)}.group-row span{flex:1}.group-form{margin-top:18px;padding-top:16px;border-top:1px solid var(--divider-color,#dde5de)}.target-row input{min-width:65px}.target-row button{padding:10px;font-size:20px}.form-note{margin-top:12px;font-size:13px;color:var(--primary-color,#287757)}@media(max-width:650px){.tabs button{font-size:12px;padding:9px}.master{gap:10px}.system-bar{padding:14px;font-size:12px}.chart-controls{gap:10px}.chart{min-height:200px}}
+    `; root.append(style);
+    const system = create("section", undefined, "system-bar"); system.id = "system-bar"; system.setAttribute("aria-label", "Wärmepumpenstatus"); main.prepend(system);
+    const tabs = create("nav", undefined, "tabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Thermo Control Bereiche"); system.after(tabs);
+    const overview = create("section"); overview.id = "tab-overview"; overview.setAttribute("role", "tabpanel");
+    for (const id of [".intro", "#rooms", "#empty"]) overview.append(main.querySelector(id));
+    main.insertBefore(overview, main.querySelector(".footer"));
+    const master = create("div", undefined, "master"); master.innerHTML = `<label>Master-Sollwertverschiebung (°C)<input id="master-offset" type="range" min="-5" max="5" step="0.5" value="0"></label><output id="master-value">0 °C</output><button data-offset="-2">Eco</button><button data-offset="0">Normal</button><button data-offset="1">Komfort</button><button data-offset="2">Party</button>`;
+    overview.querySelector("#rooms").before(master);
+    const groupCards = create("section", undefined, "group-cards"); groupCards.id = "group-cards"; groupCards.setAttribute("aria-label", "Gruppensteuerung"); master.after(groupCards);
+    for (const [id, title] of [["overview", "Übersicht"], ["graphs", "Verläufe & Analyse"], ["groups", "Thermostate & Gruppen"], ["settings", "Einstellungen"]]) {
+      const button = create("button", title); button.type = "button"; button.id = `nav-${id}`; button.setAttribute("role", "tab"); button.setAttribute("aria-controls", `tab-${id}`); button.dataset.tab = id; button.onclick = () => this._switchTab(id); tabs.append(button);
+      if (id !== "overview") { const section = create("section"); section.id = `tab-${id}`; section.setAttribute("role", "tabpanel"); main.insertBefore(section, main.querySelector(".footer")); }
+      root.querySelector(`#tab-${id}`).setAttribute("aria-labelledby", button.id);
+    }
+    tabs.onkeydown = (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault(); const buttons = [...tabs.children]; const current = buttons.indexOf(event.target);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? 3 : (current + (event.key === "ArrowRight" ? 1 : -1) + 4) % 4;
+      this._switchTab(buttons[next].dataset.tab); buttons[next].focus();
+    };
+    const graph = root.querySelector("#tab-graphs"); graph.innerHTML = `<div class="analytics"><h2>Temperaturen und Heizphasen</h2><div class="chart-controls"><label>Raum / Gruppe<select id="graph-room"></select></label><label>Zeitfenster<select id="graph-window"><option value="6">6 Stunden</option><option value="24" selected>24 Stunden</option><option value="48">48 Stunden</option><option value="168">7 Tage</option></select></label><label class="checkbox"><input id="graph-flow" type="checkbox"><span>Vorlauftemperatur einblenden</span></label><button id="refresh-graph">Aktualisieren</button></div><div class="legend"><span style="--color:#287757">Raum Ist</span><span style="--color:#c56a35">Raum Soll</span><span style="--color:#467eb2">Vorlauf</span></div><p class="help">Heizphasen: orange = heating, grau = idle/off, Lücken = unbekannt. Zeige auf eine Kurve für Messwerte.</p><svg id="history-chart" class="chart" viewBox="0 0 900 340" role="img" aria-label="Temperaturverlauf mit Heizphasen"></svg><p id="graph-status" role="status"></p><p id="graph-tooltip" class="help" role="status"></p></div>`;
+    for (const id of ["#graph-room", "#graph-window", "#graph-flow"]) root.querySelector(id).onchange = () => this._loadHistory();
+    root.querySelector("#refresh-graph").onclick = () => this._loadHistory();
+    const groups = root.querySelector("#tab-groups"); groups.innerHTML = `<div class="assignments"><h2>Räume und Thermostate zuordnen</h2><p>Mehrere Thermostate eines Raums werden gemeinsam gesteuert. Raum bearbeiten für Sensoren, Kontakte und Heizkreise.</p><div class="table-wrap"><table><thead><tr><th>Raum / Thermostate</th><th>Etage / Zone</th><th>Gruppe</th><th>Regelung</th><th></th></tr></thead><tbody id="assignment-rows"></tbody></table></div><button class="primary" id="groups-add-room">Raum hinzufügen</button></div><div class="settings-box"><h2>Gruppen verwalten</h2><div id="group-list"></div><button id="add-group">Gruppe hinzufügen</button><form id="group-form" class="group-form" hidden><label>Gruppenname<input name="name" required maxlength="100"></label><label class="checkbox"><input name="override" type="checkbox"><span>Eigene FBH-Parameter für diese Gruppe</span></label><div id="group-control" class="fields"></div><button class="primary" type="submit">Gruppe speichern</button><button type="button" id="cancel-group">Abbrechen</button><p class="form-note" id="group-error" role="alert"></p></form></div>`;
+    root.querySelector("#groups-add-room").onclick = () => this._openEditor();
+    root.querySelector("#add-group").onclick = () => this._openGroup();
+    root.querySelector("#cancel-group").onclick = () => { root.querySelector("#group-form").hidden = true; };
+    root.querySelector("#group-form").onsubmit = (event) => { event.preventDefault(); this._saveGroup(); };
+    root.querySelector("#group-form [name=override]").onchange = (event) => { root.querySelector("#group-control").hidden = !event.target.checked; };
+    const settings = root.querySelector("#tab-settings"); settings.innerHTML = `<form id="system-form" class="settings-box"><h2>Wärmepumpe · Alpha Innotec / Luxtronik</h2><p>Ordne die Entitäten deiner Luxtronik-Integration zu. Die Freigabe prüft Automatikmodus und verfügbare Vorlaufwärme.</p><div class="fields" id="hp-pickers"></div><div class="fields"><label>Automatik-Zustände (mit Komma trennen)<input name="automatic_states" required></label><label class="checkbox"><input name="interlock" type="checkbox"><span>Wärmepumpen-Freigabe für Raumventile aktivieren</span></label><label>Minimaler warmer Vorlauf (°C)<input name="minimum_flow" type="number" required min="15" max="60" step="0.5"></label><label>Vorlauf über Raumtemperatur (°C)<input name="flow_margin" type="number" required min="0" max="15" step="0.5"></label></div><h2>Globale FBH-Regelung</h2><div id="system-control" class="fields"></div><label>Globales Kalibrierungsintervall (s)<input name="calibration_interval" type="number" required min="300" max="86400" step="1"></label><p class="help">FBH-Parameter gelten für Räume mit globaler Regelung; Gruppen können sie überschreiben. Das Kalibrierungsintervall gilt für Räume mit aktiviertem globalem Intervall. Mindestzeiten betreffen Raumventile. Verdichterschutz und Warmwassersteuerung übernimmt Luxtronik.</p><button class="primary" type="submit">Einstellungen speichern</button><p id="settings-status" class="form-note" role="status"></p></form>`;
+    for (const [name, label, domain, temp] of [["flow_sensor", "Vorlauftemperatur Ist", "sensor", true], ["target_sensor", "Vorlauftemperatur Soll", "sensor", true], ["mode_entity", "Heizungs-Betriebsmodus", ["sensor", "select", "climate"], false], ["compressor_entity", "Verdichterstatus", "binary_sensor", false]]) {
+      const picker = document.createElement("thermo-control-entity-picker"); this._configurePicker(picker, name, label, domain, "", { temperatureOnly: temp, emptyLabel: "Keine Zuordnung" }); root.querySelector("#hp-pickers").append(picker);
+    }
+    root.querySelector("#system-form").onsubmit = (event) => { event.preventDefault(); this._saveSettings(); };
+    const slider = root.querySelector("#master-offset"); slider.oninput = () => { root.querySelector("#master-value").textContent = `${Number(slider.value).toLocaleString("de-DE")} °C`; };
+    slider.onchange = () => this._masterOffset(Number(slider.value));
+    for (const button of root.querySelectorAll("[data-offset]")) button.onclick = () => this._masterOffset(Number(button.dataset.offset));
+    this._switchTab("overview");
+  }
+
+  _switchTab(tab) {
+    this._tab = tab;
+    for (const button of this.shadowRoot.querySelectorAll("[role=tab]")) { const selected = button.dataset.tab === tab; button.setAttribute("aria-selected", String(selected)); button.tabIndex = selected ? 0 : -1; this.shadowRoot.querySelector(`#tab-${button.dataset.tab}`).hidden = !selected; }
+    if (tab === "graphs") this._loadHistory();
+    if (tab === "settings") this._fillSettings();
+    if (tab !== "graphs") this._historyGeneration += 1;
+  }
+
+  _groupOptions(select, selected) {
+    select.replaceChildren(); const empty = create("option", "Keine Gruppe"); empty.value = ""; select.append(empty);
+    for (const group of this._data.settings?.groups || []) { const option = create("option", group.name); option.value = group.id; select.append(option); }
+    select.value = selected || "";
+  }
+
+  _renderAssignments() {
+    const body = this.shadowRoot.querySelector("#assignment-rows"); body.replaceChildren();
+    for (const room of this._data.rooms) {
+      const row = create("tr"), name = create("td"); name.append(create("strong", room.config.name), create("div", room.config.trvs.map((id) => this._hass.states[id]?.attributes.friendly_name || id).join(", "), "help")); row.append(name, create("td", room.config.floor || "—"));
+      const cell = create("td"), select = create("select"); select.setAttribute("aria-label", `${room.config.name}: Gruppe`); this._groupOptions(select, room.config.group_id); cell.append(select); row.append(cell, create("td", room.config.heating_type === "floor" ? "FBH / TPI" : "Thermostat"));
+      select.onchange = async () => { select.disabled = true; try { await this._hass.callWS({ type: "thermo_control/save_room", config: { ...room.config, group_id: select.value || null }, room_id: room.id, revision: this._data.revision }); } catch (error) { this._error(this._message(error)); select.value = room.config.group_id || ""; } finally { select.disabled = false; } };
+      const edit = create("button", "Raum bearbeiten"); edit.onclick = () => this._openEditor(room); const editCell = create("td"); editCell.append(edit); row.append(editCell); body.append(row);
+    }
+    const list = this.shadowRoot.querySelector("#group-list"); list.replaceChildren();
+    for (const group of this._data.settings.groups) {
+      const row = create("div", undefined, "group-row"); row.append(create("span", `${group.name} · ${this._data.rooms.filter((room) => room.config.group_id === group.id).length} Räume`));
+      const edit = create("button", "Gruppe bearbeiten"); edit.onclick = () => this._openGroup(group); const remove = create("button", "Gruppe löschen"); remove.onclick = () => this._removeGroup(group.id); row.append(edit, remove); list.append(row);
+    }
+  }
+
+  _openGroup(group = null) {
+    this._editingGroup = group; this._groupRevision = this._data.revision; this._groupSettings = structuredClone(this._data.settings);
+    const root = this.shadowRoot, form = root.querySelector("#group-form"); form.hidden = false; form.elements.name.value = group?.name || ""; form.elements.override.checked = Boolean(group && Object.keys(group.control || {}).length);
+    this._numberFields(root.querySelector("#group-control"), CONTROL_NUMBERS, { ...this._data.settings.control, ...group?.control }); root.querySelector("#group-control").hidden = !form.elements.override.checked; root.querySelector("#group-error").textContent = ""; form.elements.name.focus();
+  }
+
+  async _saveGroup() {
+    const form = this.shadowRoot.querySelector("#group-form"); if (!form.reportValidity() || this._groupSaving) return;
+    const config = structuredClone(this._groupSettings); const group = { id: this._editingGroup?.id || Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join(""), name: form.elements.name.value.trim(), control: form.elements.override.checked ? Object.fromEntries(CONTROL_NUMBERS.map(([key]) => [key, Number(form.elements[key].value)])) : {} };
+    config.groups = config.groups.filter((item) => item.id !== group.id).concat(group); this._groupSaving = true;
+    try { await this._hass.callWS({ type: "thermo_control/save_settings", config, revision: this._groupRevision }); form.hidden = true; }
+    catch (error) { this.shadowRoot.querySelector("#group-error").textContent = this._message(error); }
+    finally { this._groupSaving = false; }
+  }
+
+  async _removeGroup(id) {
+    try { await this._hass.callWS({ type: "thermo_control/save_settings", config: { ...this._data.settings, groups: this._data.settings.groups.filter((group) => group.id !== id) }, revision: this._data.revision }); }
+    catch (error) { this._error(this._message(error)); }
+  }
+
+  _renderGroupCards() {
+    const container = this.shadowRoot.querySelector("#group-cards"); container.replaceChildren();
+    for (const group of this._data.settings.groups) {
+      const mapping = this._data.groups?.find((item) => item.id === group.id);
+      const card = create("article", undefined, "group-summary"); card.dataset.groupId = group.id;
+      card.append(create("h2", group.name), create("p", "", "group-state"));
+      const controls = create("div", undefined, "controls");
+      const label = create("label", "Gruppen-Sollwert"), input = document.createElement("input"); input.type = "number"; input.step = "0.5"; input.setAttribute("aria-label", `${group.name}: Sollwert`); label.append(input); controls.append(label);
+      input.onchange = () => { if (input.reportValidity() && mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_temperature", { temperature: Number(input.value) }); };
+      for (const [mode, text] of [["heat", "Gruppe heizen"], ["off", "Gruppe ausschalten"]]) { const button = create("button", text); button.onclick = () => { if (mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_hvac_mode", { hvac_mode: mode }); }; controls.append(button); }
+      card.append(controls); container.append(card);
+    }
+  }
+
+  _updateSystem() {
+    const root = this.shadowRoot; if (!root.querySelector("#system-bar")) return;
+    const status = this._data.system || {}, bar = root.querySelector("#system-bar"); bar.replaceChildren();
+    const temperature = (value) => Number.isFinite(value) ? `${value.toLocaleString("de-DE", { maximumFractionDigits: 1 })} °C` : "—";
+    for (const [name, value] of [["Vorlauf Ist / Soll", `${temperature(status.flow)} / ${temperature(status.target)}`], ["Verdichter", status.compressor === true ? "Aktiv" : status.compressor === false ? "Inaktiv" : "Unbekannt"], ["Modus", status.mode || "Nicht zugeordnet"], ["Hausbedarf / freigegeben", `${status.demand ?? 0} % / ${status.eligible_demand ?? 0} %`]]) {
+      const item = create("span", name); item.append(create("strong", value)); bar.append(item);
+    }
+    const slider = root.querySelector("#master-offset"); if (root.activeElement !== slider) { slider.value = this._data.settings?.master_offset || 0; root.querySelector("#master-value").textContent = `${Number(slider.value).toLocaleString("de-DE")} °C`; }
+    for (const card of root.querySelectorAll("[data-group-id]")) {
+      const mapping = this._data.groups?.find((item) => item.id === card.dataset.groupId); const state = this._hass?.states[mapping?.entity_id]; const attributes = state?.attributes || {};
+      const members = this._data.rooms.filter((room) => room.config.group_id === card.dataset.groupId);
+      const heating = members.some((room) => this._hass?.states[room.entity_id]?.attributes.hvac_action === "heating");
+      card.querySelector(".group-state").textContent = `${heating ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit" : "Aus / unbekannt"} · ${members.length} Räume${attributes.mixed_targets ? " · Unterschiedliche Sollwerte" : ""}`;
+      const input = card.querySelector("input"); if (root.activeElement !== input) input.value = attributes.temperature ?? ""; input.min = attributes.min_temp ?? 5; input.max = attributes.max_temp ?? 35;
+      for (const field of card.querySelectorAll("input,button")) field.disabled = !state || ["unknown", "unavailable"].includes(state.state);
+    }
+  }
+
+  async _masterOffset(offset) {
+    try { await this._hass.callWS({ type: "thermo_control/master_offset", offset }); this._error(""); }
+    catch (error) { this._error(this._message(error)); this._updateSystem(); }
+  }
+
+  _fillSettings() {
+    const config = this._settingsDraft = structuredClone(this._data.settings || SYSTEM_VALUES); this._settingsRevision = this._data.revision;
+    const root = this.shadowRoot, form = root.querySelector("#system-form");
+    for (const picker of form.querySelectorAll("thermo-control-entity-picker")) picker.value = config.heat_pump[picker.getAttribute("name")] || "";
+    form.elements.automatic_states.value = config.heat_pump.automatic_states.join(", "); form.elements.interlock.checked = config.heat_pump.interlock;
+    for (const key of ["minimum_flow", "flow_margin"]) form.elements[key].value = config.heat_pump[key];
+    form.elements.calibration_interval.value = config.calibration_interval;
+    this._numberFields(root.querySelector("#system-control"), CONTROL_NUMBERS, config.control); root.querySelector("#settings-status").textContent = "";
+  }
+
+  async _saveSettings() {
+    const root = this.shadowRoot, form = root.querySelector("#system-form"); if (!form.reportValidity() || this._settingsSaving) return;
+    const config = structuredClone(this._settingsDraft);
+    for (const picker of form.querySelectorAll("thermo-control-entity-picker")) { picker.commit(); if (!picker.reportValidity()) return; config.heat_pump[picker.getAttribute("name")] = picker.value || null; }
+    Object.assign(config.heat_pump, { automatic_states: form.elements.automatic_states.value.split(",").map((value) => value.trim()).filter(Boolean), interlock: form.elements.interlock.checked, minimum_flow: Number(form.elements.minimum_flow.value), flow_margin: Number(form.elements.flow_margin.value) });
+    config.control = Object.fromEntries(CONTROL_NUMBERS.map(([key]) => [key, Number(form.elements[key].value)])); config.calibration_interval = Number(form.elements.calibration_interval.value);
+    this._settingsSaving = true; form.querySelector("button[type=submit]").disabled = true;
+    try { await this._hass.callWS({ type: "thermo_control/save_settings", config, revision: this._settingsRevision }); this._settingsRevision = this._data.revision; this._settingsDraft = config; root.querySelector("#settings-status").textContent = "Einstellungen gespeichert."; }
+    catch (error) { root.querySelector("#settings-status").textContent = this._message(error); }
+    finally { this._settingsSaving = false; form.querySelector("button[type=submit]").disabled = false; }
+  }
+
+  _graphChoices() {
+    const select = this.shadowRoot.querySelector("#graph-room"), selected = select.value; select.replaceChildren();
+    for (const room of this._data.rooms) { const option = create("option", room.config.name); option.value = room.entity_id || ""; select.append(option); }
+    for (const group of this._data.settings.groups) { const option = create("option", `Gruppe: ${group.name}`); option.value = this._data.groups?.find((item) => item.id === group.id)?.entity_id || ""; select.append(option); }
+    if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+  }
+
+  async _loadHistory() {
+    const root = this.shadowRoot, entityId = root.querySelector("#graph-room").value, generation = ++this._historyGeneration;
+    root.querySelector("#graph-status").textContent = "Verlauf wird geladen …";
+    if (!entityId) { root.querySelector("#history-chart").replaceChildren(); root.querySelector("#graph-tooltip").textContent = ""; root.querySelector("#graph-status").textContent = "Lege zuerst einen Raum an."; return; }
+    const end = Date.now(), start = end - Number(root.querySelector("#graph-window").value) * 3600000;
+    const flowId = root.querySelector("#graph-flow").checked ? this._data.settings.heat_pump.flow_sensor : null;
+    try {
+      const history = await this._hass.callWS({ type: "history/history_during_period", start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: [entityId, flowId].filter(Boolean), significant_changes_only: false, minimal_response: false, no_attributes: false });
+      if (generation !== this._historyGeneration || !this.isConnected) return;
+      this._drawHistory(history || {}, entityId, flowId, start, end);
+    } catch (error) {
+      if (generation !== this._historyGeneration) return;
+      root.querySelector("#history-chart").replaceChildren(); root.querySelector("#graph-status").textContent = "Verlauf nicht verfügbar. Aktiviere History/Recorder und prüfe, ob Raum- und Vorlaufsensor aufgezeichnet werden. " + this._message(error);
+    }
+  }
+
+  _drawHistory(history, entityId, flowId, start, end) {
+    const root = this.shadowRoot, svg = root.querySelector("#history-chart"); svg.replaceChildren(); root.querySelector("#graph-tooltip").textContent = "";
+    const nativeUnit = this._hass.config?.unit_system?.temperature || "°C";
+    const celsius = (value, unit = nativeUnit) => value == null || value === "" || !Number.isFinite(Number(value)) ? null : unit === "°F" ? (Number(value) - 32) * 5 / 9 : unit === "K" ? Number(value) - 273.15 : Number(value);
+    const points = (history[entityId] || []).map((state) => {
+      const a = state.a || state.attributes || {}, raw = state.lu ?? state.lc ?? state.last_updated ?? state.last_changed;
+      const time = typeof raw === "number" ? raw * 1000 : Date.parse(raw), valid = !["unknown", "unavailable"].includes(state.s ?? state.state);
+      return { time, current: valid ? (Number.isFinite(a.current_temperature_celsius) ? a.current_temperature_celsius : celsius(a.current_temperature)) : null, target: valid ? (Number.isFinite(a.effective_target_temperature) ? a.effective_target_temperature : celsius(a.temperature)) : null, action: valid ? a.hvac_action : null };
+    }).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
+    const flow = (history[flowId] || []).map((state) => { const a = state.a || state.attributes || {}, raw = state.lu ?? state.lc ?? state.last_updated ?? state.last_changed; return { time: typeof raw === "number" ? raw * 1000 : Date.parse(raw), value: celsius(state.s ?? state.state, a.unit_of_measurement || "°C") }; }).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
+    const series = [{ points: points.map((p) => ({ time: p.time, value: p.current })), color: "#287757" }, { points: points.map((p) => ({ time: p.time, value: p.target })), color: "#c56a35", step: true }, { points: flow, color: "#467eb2" }];
+    const values = series.flatMap((s) => s.points.map((p) => p.value).filter((v) => v !== null));
+    if (!values.length) { root.querySelector("#graph-status").textContent = "Keine aufgezeichneten Messwerte im gewählten Zeitraum."; return; }
+    const low = Math.floor(values.reduce((minimum, value) => Math.min(minimum, value), Infinity) - 1), high = Math.ceil(values.reduce((maximum, value) => Math.max(maximum, value), -Infinity) + 1), x = (time) => 55 + Math.max(0, Math.min(1, (time - start) / (end - start))) * 820, y = (value) => 260 - (value - low) / (high - low) * 220;
+    const node = (tag, attributes, text) => { const element = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value)); if (text !== undefined) element.textContent = text; svg.append(element); return element; };
+    for (let index = 0; index <= 4; index++) { const value = low + (high - low) * index / 4; node("line", { x1: 55, x2: 875, y1: y(value), y2: y(value), stroke: "#9baa9f", opacity: 0.2 }); node("text", { x: 5, y: y(value) + 4 }, `${value.toFixed(1)} °C`); const time = start + (end - start) * index / 4; node("text", { x: x(time), y: 328, "text-anchor": index === 0 ? "start" : index === 4 ? "end" : "middle" }, new Date(time).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })); }
+    const compact = (points) => {
+      if (points.length < 4000) return points;
+      const result = []; let bucket = [], key = null;
+      const flush = () => {
+        if (!bucket.length) return;
+        const minimum = bucket.reduce((a, b) => b.value !== null && (a.value === null || b.value < a.value) ? b : a);
+        const maximum = bucket.reduce((a, b) => b.value !== null && (a.value === null || b.value > a.value) ? b : a);
+        const missing = bucket.find((point) => point.value === null);
+        result.push(...[...new Set([bucket[0], minimum, maximum, missing, bucket.at(-1)].filter(Boolean))].sort((a, b) => a.time - b.time));
+      };
+      for (const point of points) { const next = Math.floor((point.time - start) / (end - start) * 820); if (key !== next) { flush(); bucket = []; key = next; } bucket.push(point); } flush(); return result;
+    };
+    for (const s of series) {
+      let path = "", last = null;
+      // Draw recorded measurements; unavailable entries explicitly break the curve.
+      for (const point of compact(s.points)) { if (point.value === null) { last = null; continue; } const px = x(point.time), py = y(point.value); path += last ? s.step ? ` H${px} V${py}` : ` L${px},${py}` : ` M${px},${py}`; last = point; }
+      if (last) path += ` H${x(end)}`;
+      node("path", { d: path, fill: "none", stroke: s.color, "stroke-width": 2 });
+    }
+    let phase = null;
+    const drawPhase = (until) => { if (phase && ["heating", "idle", "off"].includes(phase.action)) node("rect", { x: x(phase.time), y: 283, width: Math.max(0.2, x(until) - x(phase.time)), height: 12, fill: phase.action === "heating" ? "#d18043" : "#bdc9bf" }); };
+    for (const point of points) { if (!phase || point.action !== phase.action) { drawPhase(point.time); phase = point; } } drawPhase(end);
+    const cursor = node("line", { x1: 55, x2: 55, y1: 35, y2: 299, stroke: "#69786e", visibility: "hidden" });
+    svg.onpointermove = (event) => { const rect = svg.getBoundingClientRect(), time = start + Math.max(0, Math.min(1, ((event.clientX - rect.left) / rect.width * 900 - 55) / 820)) * (end - start); let nearest = points[0]; for (const point of points) if (!nearest || Math.abs(point.time - time) < Math.abs(nearest.time - time)) nearest = point; if (!nearest) return; cursor.setAttribute("x1", x(nearest.time)); cursor.setAttribute("x2", x(nearest.time)); cursor.setAttribute("visibility", "visible"); root.querySelector("#graph-tooltip").textContent = `${new Date(nearest.time).toLocaleString("de-DE")} · Ist ${nearest.current?.toFixed(2) ?? "—"} °C · Soll ${nearest.target?.toFixed(2) ?? "—"} °C · ${nearest.action || "unbekannt"}`; };
+    root.querySelector("#graph-status").textContent = `${points.length} Raum-Meldungen${flowId ? ` · ${flow.length} Vorlauf-Meldungen` : ""}. Aufzeichnung gemäß HA-Recorder-Aufbewahrung.`;
   }
 
   _message(error) { return error?.message || "Die Aktion konnte nicht ausgeführt werden. Bitte erneut versuchen."; }

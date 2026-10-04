@@ -68,7 +68,7 @@ class ThermoControlClimate(
             mode = state.attributes.get("desired_hvac_mode", state.state)
             if mode in self.hvac_modes:
                 self.coordinator.mode = HVACMode(mode)
-            low, high = self.coordinator.temperature_limits()
+            low, high = self.coordinator.base_temperature_limits()
             target = finite(state.attributes.get("target_temperature_celsius"))
             if target is None:
                 target = celsius(
@@ -100,7 +100,7 @@ class ThermoControlClimate(
 
     @property
     def target_temperature(self) -> float:
-        return self.coordinator.target
+        return self.coordinator.effective_target
 
     @property
     def min_temp(self) -> float:
@@ -115,7 +115,7 @@ class ThermoControlClimate(
         return self.coordinator.data["mode"]
 
     @property
-    def hvac_action(self) -> HVACAction:
+    def hvac_action(self) -> HVACAction | None:
         return self.coordinator.data["action"]
 
     @property
@@ -128,6 +128,25 @@ class ThermoControlClimate(
             "desired_hvac_mode": self.coordinator.mode,
             "manual_temperature": self.coordinator.manual_target,
             "target_temperature_celsius": self.coordinator.target,
+            "base_target_temperature": self.coordinator.target,
+            "current_temperature_celsius": self.coordinator.data["temperature"],
+            "effective_target_temperature": self.coordinator.effective_target,
+            "heating_type": self.coordinator.config["heating_type"],
+            "floor": self.coordinator.config["floor"],
+            "group_id": self.coordinator.config["group_id"],
+            **{
+                key: self.coordinator.data.get(key)
+                for key in (
+                    "heat_demand",
+                    "heat_permitted",
+                    "interlock_reason",
+                    "temperature_rate",
+                    "predicted_temperature",
+                    "pre_shutoff",
+                    "pwm_active",
+                    "duty_cycle",
+                )
+            },
             "window_open": self.coordinator.window_blocked,
             "window_pending": self.coordinator._window_pending,
             "valve_position": self.coordinator.data["position"],
@@ -151,8 +170,9 @@ class ThermoControlClimate(
         mode = kwargs.get("hvac_mode")
         if mode is not None and mode not in self.hvac_modes:
             raise ServiceValidationError("Only off and heat are supported")
+        offset = self._manager.settings["master_offset"] if self._manager else 0
         await self.coordinator.async_set_intent(
-            temperature=temperature, mode=HVACMode(mode) if mode is not None else None
+            temperature=temperature - offset, mode=HVACMode(mode) if mode is not None else None
         )
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
@@ -163,7 +183,12 @@ class ThermoControlClimate(
             if preset_mode == "none"
             else self.coordinator.config[f"preset_{preset_mode}"]
         )
-        if not self.min_temp <= value <= self.max_temp:
+        low, high = (
+            self.coordinator.base_temperature_limits()
+            if preset_mode == "none"
+            else (self.min_temp, self.max_temp)
+        )
+        if not low <= value <= high:
             raise ServiceValidationError("Preset temperature is outside the room's supported range")
         await self.coordinator.async_set_intent(preset=preset_mode)
 

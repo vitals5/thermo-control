@@ -85,3 +85,54 @@ async def test_storage_error(hass, hass_ws_client, manager, room):
         )
         result = await client.receive_json()
         assert result["error"]["code"] == "storage_error"
+
+
+@pytest.mark.parametrize("command", ["save_settings", "master_offset"])
+async def test_system_commands(hass, hass_ws_client, manager, command):
+    from copy import deepcopy
+
+    from custom_components.thermo_control.const import SYSTEM_DEFAULTS
+
+    async_register_commands(hass)
+    client = await hass_ws_client(hass)
+    data = {"id": 1, "type": f"thermo_control/{command}"}
+    if command == "save_settings":
+        data.update(config=deepcopy(SYSTEM_DEFAULTS), revision=0)
+    else:
+        data["offset"] = -2
+    await client.send_json(data)
+    assert (await client.receive_json())["success"]
+    assert manager.revision == 1
+    invalid = {**data, "id": 2}
+    if command == "save_settings":
+        invalid["config"] = {**invalid["config"], "master_offset": 99}
+        invalid["revision"] = 1
+    else:
+        invalid["offset"] = 99
+    await client.send_json(invalid)
+    assert (await client.receive_json())["error"]["code"] == "invalid_configuration"
+    data["id"] = 3
+    if command == "save_settings":
+        data["revision"] = 1
+    with patch.object(manager._store, "async_save", AsyncMock(side_effect=OSError("full"))):
+        await client.send_json(data)
+        assert (await client.receive_json())["error"]["code"] == "storage_error"
+
+
+@pytest.mark.parametrize("command", ["save_settings", "master_offset"])
+async def test_system_commands_require_admin(
+    hass, hass_ws_client, hass_read_only_access_token, manager, command
+):
+    from copy import deepcopy
+
+    from custom_components.thermo_control.const import SYSTEM_DEFAULTS
+
+    async_register_commands(hass)
+    client = await hass_ws_client(hass, access_token=hass_read_only_access_token)
+    message = {"id": 1, "type": f"thermo_control/{command}"}
+    if command == "save_settings":
+        message.update(config=deepcopy(SYSTEM_DEFAULTS), revision=0)
+    else:
+        message["offset"] = 1
+    await client.send_json(message)
+    assert (await client.receive_json())["error"]["code"] == "unauthorized"
