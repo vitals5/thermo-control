@@ -717,7 +717,7 @@ class ThermoControlPanel extends HTMLElement {
       .room-tile .card-head { gap: 4px; }
       .room-tile h2 { min-width: 0; flex: 1; font-size: 15px; overflow-wrap: anywhere; }
       .room-tile .edit { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; }
-      .room-tile > .eyebrow { font-size: 9px; overflow-wrap: anywhere; }
+      .room-tile .eyebrow { font-size: 9px; overflow-wrap: anywhere; }
       .room-tile .status { gap: 4px; font-size: 11px; }
       .room-tile .dot { flex: none; }
       .room-tile .measure { margin: 12px 0; }

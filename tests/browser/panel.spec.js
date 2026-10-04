@@ -480,18 +480,19 @@ test("overlapping target calls are serialized and stale responses preserve the l
   await page.evaluate(() => window.resolveServices[1]());
 });
 
-for (const width of [320, 390, 1280]) {
-  test(`two-column room tiles and full-width touch steppers at ${width}px`, async ({ page }) => {
+for (const [width, font] of [[320, "system-ui"], [390, "system-ui"], [1280, "system-ui"], [320, "Arial, sans-serif"], [320, "FreeSans, sans-serif"]]) {
+  test(`two-column room tiles and full-width touch steppers at ${width}px with ${font}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mount(page, true);
-    await page.evaluate(() => {
+    await page.evaluate((font) => {
+      window.panel.style.setProperty("--paper-font-body1_-_font-family", font);
       const room = structuredClone(window.panel._data.rooms[0]);
       room.id = "bedroom"; room.config.name = "Schlafzimmer mit sehr langem Namen";
       window.updateSnapshot({ rooms: [...window.panel._data.rooms, room] });
       const state = structuredClone(window.panel.hass.states["climate.living"]);
       state.attributes.hvac_action = "heating";
       window.updateEntity("climate.living", state);
-    });
+    }, font);
     const geometry = await page.evaluate(() => {
       const root = window.panel.shadowRoot, grid = root.querySelector(".rooms-grid"), tiles = [...grid.querySelectorAll(".room-tile")];
       return {
@@ -501,7 +502,7 @@ for (const width of [320, 390, 1280]) {
         buttons: [...grid.querySelectorAll(".target-stepper button")].map((button) => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })),
         targetsFit: [...grid.querySelectorAll(".target-input")].every((input) => input.scrollWidth <= input.clientWidth),
         pills: tiles.map((tile) => ({ parts: tile.querySelector(".target-stepper").children.length, width: tile.querySelector(".target-stepper").getBoundingClientRect().width, available: tile.clientWidth - 20 })),
-        overflow: [root.host, root.querySelector("main"), grid, ...tiles].some((node) => node.scrollWidth > node.clientWidth),
+        overflow: [root.host, root.querySelector("main"), grid, ...tiles, ...grid.querySelectorAll(".measure,.eyebrow")].filter((node) => node.scrollWidth > node.clientWidth).map((node) => ({ className: node.className, width: node.clientWidth, scrollWidth: node.scrollWidth })),
         heating: tiles.every((tile) => tile.classList.contains("heating")),
         border: getComputedStyle(tiles[0]).borderColor,
       };
@@ -510,7 +511,7 @@ for (const width of [320, 390, 1280]) {
     expect(geometry.gap).toBe("8px");
     expect(geometry.positions[0].y).toBe(geometry.positions[1].y);
     expect(geometry.positions[0].x).not.toBe(geometry.positions[1].x);
-    expect(geometry.overflow).toBe(false);
+    expect(geometry.overflow).toEqual([]);
     expect(geometry.targetsFit).toBe(true);
     expect(geometry.heating).toBe(true);
     for (const button of geometry.buttons) { expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44); }
