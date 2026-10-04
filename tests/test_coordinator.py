@@ -293,3 +293,98 @@ async def test_unload_cancels_pending_work(coordinator, hass, freezer):
     await hass.async_block_till_done()
     assert not coordinator.window_blocked
     assert not coordinator._unsubscribers
+
+
+async def test_thermostat_measurements_without_external_sensor(coordinator, hass, service_calls):
+    coordinator.config["temperature_sensor"] = None
+    for entity_id, attributes in {
+        "climate.a": {"current_temperature": 19},
+        "climate.b": {
+            "current_temperature": 77,
+            "temperature_unit": "°F",
+            "temperature": 68,
+            "min_temp": 41,
+            "max_temp": 86,
+        },
+    }.items():
+        state = hass.states.get(entity_id)
+        hass.states.async_set(entity_id, "heat", {**state.attributes, **attributes})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT, temperature=21)
+    assert coordinator.data["available"]
+    assert coordinator.data["temperature"] == pytest.approx(22)
+    assert not [call for call in service_calls if call[0] in ("number", "mqtt")]
+    targets = {
+        data["entity_id"]: data["temperature"]
+        for _, service, data in service_calls
+        if service == "set_temperature"
+    }
+    assert targets == {"climate.a": 21, "climate.b": pytest.approx(69.8)}
+
+
+@pytest.mark.parametrize("value", [None, "nan", "inf", True, -41, 81])
+async def test_invalid_thermostat_readings_excluded_from_mean(
+    coordinator, hass, service_calls, value
+):
+    coordinator.config["temperature_sensor"] = None
+    state = hass.states.get("climate.b")
+    hass.states.async_set("climate.b", "heat", {**state.attributes, "current_temperature": value})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT)
+    assert coordinator.data["available"]
+    assert coordinator.data["temperature"] == 23
+    assert not [call for call in service_calls if call[0] in ("number", "mqtt")]
+
+
+async def test_missing_measurements_stop_heat_and_recover(coordinator, hass, service_calls):
+    coordinator.config["temperature_sensor"] = None
+    for entity_id in coordinator.trvs:
+        state = hass.states.get(entity_id)
+        hass.states.async_set(entity_id, "heat", {**state.attributes, "current_temperature": None})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT)
+    assert coordinator.data["temperature"] is None
+    assert not coordinator.data["available"]
+    assert coordinator.mode == HVACMode.HEAT
+    assert {
+        data["entity_id"]
+        for _, service, data in service_calls
+        if service == "set_hvac_mode" and data["hvac_mode"] == "off"
+    } == set(coordinator.trvs)
+    service_calls.clear()
+    state = hass.states.get("climate.a")
+    hass.states.async_set("climate.a", "off", {**state.attributes, "current_temperature": 21})
+    hass.states.async_set("climate.b", "unavailable")
+    await coordinator._tick()
+    assert coordinator.data["available"]
+    assert coordinator.data["temperature"] == 21
+    assert (
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": "climate.a", "hvac_mode": "heat"},
+    ) in service_calls
+
+
+async def test_optional_sensor_listeners_and_window_pause(
+    coordinator, hass, service_calls, freezer
+):
+    coordinator.config["temperature_sensor"] = None
+    await coordinator.async_start()
+    await coordinator.async_set_intent(mode=HVACMode.HEAT)
+    state = hass.states.get("climate.a")
+    hass.states.async_set("climate.a", "heat", {**state.attributes, "current_temperature": 25})
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(seconds=1))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert coordinator.data["temperature"] == 24
+    hass.states.async_set("binary_sensor.window", "on")
+    await hass.async_block_till_done()
+    assert coordinator.window_blocked
+    assert coordinator.data["mode"] == HVACMode.OFF
+    assert not [call for call in service_calls if call[0] in ("number", "mqtt")]
+
+
+async def test_configured_external_sensor_never_falls_back(coordinator, hass, service_calls):
+    hass.states.async_set("sensor.room", "unavailable", {"unit_of_measurement": "°C"})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT)
+    assert coordinator.data["temperature"] is None
+    assert not coordinator.data["available"]
+    assert not [call for call in service_calls if call[0] in ("number", "mqtt")]

@@ -1,4 +1,4 @@
-"""A room climate entity with persisted intent and external temperature."""
+"""A room climate entity with persisted intent and an optional external sensor."""
 
 from typing import TYPE_CHECKING, Any
 
@@ -132,6 +132,9 @@ class ThermoControlClimate(
             "window_pending": self.coordinator._window_pending,
             "valve_position": self.coordinator.data["position"],
             "temperature_sensor": self.coordinator.config[CONF_SENSOR],
+            "temperature_source": (
+                "external_sensor" if self.coordinator.config[CONF_SENSOR] else "thermostats"
+            ),
             "thermostats": self.coordinator.config[CONF_TRVS],
             "device_status": self.coordinator.data["devices"],
         }

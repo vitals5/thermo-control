@@ -127,3 +127,39 @@ async def test_legacy_registry_detached_from_old_entry(manager, entry, hass):
     await manager.async_bind_platform(lambda entities: None)
     assert registry.async_get(old.entity_id).config_entry_id is None
     assert registry.async_get(old.entity_id).unique_id == entry.entry_id
+
+
+@pytest.mark.parametrize("sensor", [None, "", "omitted"])
+async def test_optional_sensor_can_be_stored_and_restored(manager, room, hass, sensor):
+    config = deepcopy(room)
+    if sensor == "omitted":
+        del config["temperature_sensor"]
+    else:
+        config["temperature_sensor"] = sensor
+    room_id = await manager.async_save_room(config, 0)
+    assert manager.rooms[room_id]["temperature_sensor"] is None
+    assert manager.entities[room_id].coordinator.data["temperature"] == 23
+    restored = RoomManager(hass)
+    await restored.async_initialize()
+    assert restored.rooms[room_id]["temperature_sensor"] is None
+
+
+async def test_external_sensor_can_be_removed_from_existing_room(manager, room, service_calls):
+    room_id = await manager.async_save_room(room, 0)
+    await manager.entities[room_id].async_set_temperature(temperature=22, hvac_mode="heat")
+    service_calls.clear()
+    await manager.async_save_room({**room, "temperature_sensor": None}, 1, room_id)
+    climate = manager.entities[room_id]
+    await climate.coordinator._tick()
+    assert climate.target_temperature == 22
+    assert climate.current_temperature == 23
+    assert climate.extra_state_attributes["temperature_sensor"] is None
+    assert climate.extra_state_attributes["temperature_source"] == "thermostats"
+    assert not [call for call in service_calls if call[0] in ("number", "mqtt")]
+
+
+@pytest.mark.parametrize("sensor", ["climate.a", "sensor.missing", "sensor.room_invalid", 42])
+async def test_optional_sensor_still_validated_when_selected(manager, room, hass, sensor):
+    hass.states.async_set("sensor.room_invalid", "45", {"unit_of_measurement": "%"})
+    with pytest.raises(ServiceValidationError):
+        await manager.async_save_room({**room, "temperature_sensor": sensor}, 0)

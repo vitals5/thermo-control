@@ -128,7 +128,9 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_start(self) -> None:
         """Subscribe after the climate entity has restored its desired state."""
-        ids = {self.config[CONF_SENSOR], *self.trvs, *self.config[CONF_WINDOWS]}
+        ids = {*self.trvs, *self.config[CONF_WINDOWS]}
+        if sensor := self.config.get(CONF_SENSOR):
+            ids.add(sensor)
         for device in self.devices.values():
             ids.update(
                 device[key]
@@ -167,8 +169,19 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return state if state and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) else None
 
     def _room_temperature(self) -> float | None:
-        value = state_temperature(self._state(self.config[CONF_SENSOR]))
-        return value if value is not None and -40 <= value <= 80 else None
+        """Use the chosen reference, or average valid thermostat measurements."""
+        if sensor := self.config.get(CONF_SENSOR):
+            value = state_temperature(self._state(sensor))
+            return value if value is not None and -40 <= value <= 80 else None
+        values = []
+        for entity_id in self.trvs:
+            if (state := self._state(entity_id)) is None:
+                continue
+            unit = state.attributes.get("temperature_unit", self.hass.config.units.temperature_unit)
+            value = celsius(state.attributes.get("current_temperature"), unit)
+            if value is not None and -40 <= value <= 80:
+                values.append(value)
+        return sum(values) / len(values) if values else None
 
     def _windows_open(self) -> bool:
         # Only positively closed contacts permit recovery. Missing contacts block heat.
@@ -401,6 +414,8 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _calibrate(
         self, entity_id: str, device: dict[str, Any], state: State, room: float
     ) -> None:
+        if not self.config.get(CONF_SENSOR):
+            return  # Never recalibrate trusted thermostat readings against their own mean.
         number_id, topic = device.get(CONF_CALIBRATION_ENTITY), device.get(CONF_CALIBRATION_TOPIC)
         if not number_id and not topic:
             return

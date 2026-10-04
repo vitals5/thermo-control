@@ -134,14 +134,17 @@ async def test_unload_without_runtime_is_safe(hass):
     assert await async_unload_entry(hass, MockConfigEntry(domain=DOMAIN, data={}))
 
 
+@pytest.mark.parametrize("external_sensor", [True, False])
 async def test_real_entry_platform_restores_rooms_on_reload(
-    hass, hass_storage, room, service_calls
+    hass, hass_storage, room, service_calls, external_sensor
 ):
     from homeassistant.components.frontend import async_panel_exists
     from homeassistant.helpers import entity_registry as er
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
     entry.add_to_hass(hass)
+    if not external_sensor:
+        room = {**room, "temperature_sensor": None}
     # Frontend's compiled distribution is not part of the HA test environment.
     # The actual panel registry, static path and climate platform remain real.
     with patch("homeassistant.components.frontend.async_setup", AsyncMock(return_value=True)):
@@ -153,7 +156,9 @@ async def test_real_entry_platform_restores_rooms_on_reload(
         await hass.async_block_till_done()
         entity = manager.entities[room_id]
         entity_id = entity.entity_id
-        assert hass.states.get(entity_id) is not None
+        assert hass.states.get(entity_id).attributes["current_temperature"] == (
+            20 if external_sensor else 23
+        )
         assert er.async_get(hass).async_get(entity_id).config_entry_id == entry.entry_id
         await entity.async_set_temperature(temperature=22, hvac_mode="heat")
         assert await hass.config_entries.async_unload(entry.entry_id)

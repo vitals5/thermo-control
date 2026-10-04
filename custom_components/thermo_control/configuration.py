@@ -63,7 +63,7 @@ ROOM_SCHEMA = vol.Schema(
     {
         vol.Required("name"): vol.All(str, vol.Length(min=1, max=100)),
         vol.Required(CONF_TRVS): vol.All([cv.entity_id], vol.Length(min=1, max=32)),
-        vol.Required(CONF_SENSOR): cv.entity_id,
+        vol.Optional(CONF_SENSOR, default=None): vol.Any(None, "", cv.entity_id),
         vol.Optional(CONF_WINDOWS, default=list): [cv.entity_id],
         vol.Optional(CONF_DEVICES, default=dict): {cv.entity_id: DEVICE_SCHEMA},
         vol.Optional(CONF_INTERVAL, default=DEFAULTS[CONF_INTERVAL]): _range(300, 86400),
@@ -116,8 +116,10 @@ def validate_room(
                 f"Entität {entity_id} muss eine vorhandene {domain}-Entität sein."
             )
 
-    require_entity(result[CONF_SENSOR], "sensor")
-    if check_entities:
+    result[CONF_SENSOR] = result[CONF_SENSOR] or None
+    if result[CONF_SENSOR]:
+        require_entity(result[CONF_SENSOR], "sensor")
+    if check_entities and result[CONF_SENSOR]:
         state = hass.states.get(result[CONF_SENSOR])
         unit = state.attributes.get("unit_of_measurement")
         # Offline sensors remain editable; never require a current measurement.

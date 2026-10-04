@@ -1,19 +1,25 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit einem externen Temperatursensor und einem oder mehreren Heizkörperthermostaten. Domain: `thermo_control`, Version: `1.1.1`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `1.2.0`.
 
 ## Installation und Seitenleisten-Panel
 
-Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte TRV-Climate-Entitäten und ein externer Raumtemperatursensor. Für MQTT-Kalibrierung muss die MQTT-Integration bereits eingerichtet sein.
+Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte Climate-Entitäten der Heizkörper- oder Wandthermostate. Ein externer Raumtemperatursensor ist optional. Für MQTT-Kalibrierung muss die MQTT-Integration bereits eingerichtet sein.
 
 1. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
 2. Home Assistant neu starten.
 3. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** nach **Thermo Control** suchen und den leeren Bestätigungsdialog abschließen. Es werden keine Einstellungen abgefragt.
 4. In der linken Seitenleiste **Thermo Control** (`/thermo_control`) öffnen. Das Panel ist für HA-Administratoren sichtbar.
-5. Im Panel **Raum hinzufügen** wählen. Raumname, Thermostate und Raumtemperatursensor auswählen; Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
+5. Im Panel **Raum hinzufügen** wählen. Raumname und Thermostate auswählen; externer Raumtemperatursensor und Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
 6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten ausgeschaltet; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
 
 **Der Config Flow legt ausschließlich die Integration an.** Es gibt keine Einstellungsfelder und keinen Options Flow. Alle Raum- und Geräteparameter werden ausschließlich im Seitenleisten-Panel verwaltet. YAML und eine eigene `panel_custom`-Konfiguration sind nicht erforderlich. Ein bereits vorhandener leerer `thermo_control:`-Eintrag aus Version 1.1 wird aus Kompatibilitätsgründen importiert und kann danach aus YAML entfernt werden. Es wird nur eine Integration angelegt.
+
+Alle Entitätsfelder bieten Texteingabe mit Live-Suche nach Anzeigename oder Entitäts-ID. Die Treffer zeigen Name, ID und den aktuellen Messwert bzw. Zustand. Thermostat-Treffer zeigen ihre gemessene Temperatur. Ausgewählte Entitäten behalten eine live aktualisierte Vorschau. Für mehrere Thermostate oder Kontakte einzeln nach weiteren Entitäten suchen und hinzufügen; über das Kreuz lassen sie sich entfernen. Auch die Gerätefelder für Kalibrierung, Ventilposition und interne Temperatur sind durchsuchbar. Temperatursensorfelder bieten nur Entitäten mit einer Temperatureinheit an. Pfeiltasten und Enter wählen Treffer aus; Escape schließt die Vorschlagsliste. Vollständig eingegebene, vorhandene Entitäts-IDs werden beim Speichern übernommen. Unvollständige oder unbekannte Eingaben müssen ausgewählt oder gelöscht werden.
+
+Ohne externen Raumtemperatursensor verwendet die Zone `current_temperature` ihrer Thermostate. Bei mehreren Geräten wird der Mittelwert gültiger, verfügbarer Messungen verwendet, nach Umrechnung nach Celsius. Fehlende oder ungültige Messungen werden ausgelassen. Ohne gültige Messung wird der Raum als nicht verfügbar markiert und Off/Frostschutz gesendet; nach Rückkehr einer Messung gilt wieder der gewünschte Heizmodus. Die Übersicht zeigt, ob die Temperatur vom externen Sensor oder den Thermostaten stammt.
+
+**Ohne externen Sensor erfolgt keine automatische Offset-Kalibrierung.** Bestehende Hardware-Offsets bleiben erhalten; Number- und MQTT-Kalibrierungsbefehle werden nicht gesendet. Damit können Wandthermostate mit passender eigener Messung unverändert genutzt werden. Ist ein externer Sensor ausgewählt, bleibt dieser die verbindliche Referenz; ein Ausfall führt nicht zu einem stillen Wechsel auf interne Messungen.
 
 Die Panel-Übersicht zeigt aktuelle Raumtemperatur, Sollwert, Heizstatus, Ventilöffnung und Fensterstatus. Heizung und Presets sind direkt steuerbar. **Konfigurieren** öffnet den Raumeditor; **Raum löschen** entfernt den Raum und seine virtuelle Climate-Entität nach Bestätigung. Physische Thermostate bleiben bestehen und behalten ihren letzten Hardwarezustand. Für ein Abschalten vor dem Entfernen im Panel zuerst **Aus** wählen.
 
@@ -90,9 +96,9 @@ Die virtuelle Entität ist die führende Stelle für Sollwert und HVAC-Modus. Ab
 | `boost` | 25 °C |
 | `away` | 15 °C |
 
-Die native TRV-Regelung bleibt aktiv. Die konfigurierte Hysterese bestimmt den geschätzten `hvac_action`-Status (`heating`/`idle`) aus der externen Raumtemperatur; sie erzeugt keine zusätzlichen Heat/Off-Schaltzyklen. `boost` ist ein erhöhtes Raumziel und bleibt bis zum nächsten Presetwechsel aktiv.
+Die native TRV-Regelung bleibt aktiv. Die konfigurierte Hysterese bestimmt den geschätzten `hvac_action`-Status (`heating`/`idle`) aus der verwendeten Raumtemperatur; sie erzeugt keine zusätzlichen Heat/Off-Schaltzyklen. `boost` ist ein erhöhtes Raumziel und bleibt bis zum nächsten Presetwechsel aktiv.
 
-`valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
+`valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `temperature_source` (`external_sensor` / `thermostats`), `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
 
 Ein fehlendes TRV blockiert die übrigen Geräte nicht. Wiederholungen nicht bestätigter Steuerbefehle erfolgen höchstens einmal pro Minute. Jeder Serviceaufruf hat ein Timeout von zehn Sekunden. Sensor- und Geräteereignisse werden gebündelt; jede Minute wird außerdem auf ausstehende Wiederholungen und Kalibrierungen geprüft. Die State-Listener verwenden ausschließlich `async_track_state_change_event`; Listener, Timer und laufende Aufgaben werden beim Entladen entfernt.
 
@@ -137,4 +143,4 @@ npx playwright install --with-deps chromium
 npm run test:panel
 ```
 
-Sie prüfen Anlegen, Bearbeiten, Löschen, Live-Anzeige, Heizbefehle, fehlgeschlagenes Speichern, mobile Darstellung und Subscription-Cleanup. Das Panel lädt ausschließlich lokale Dateien und benötigt kein CDN.
+Sie prüfen Anlegen, Bearbeiten, Löschen, Live-Anzeige, Entitätssuche mit Messwertvorschau, Mehrfachauswahl, Tastaturbedienung, optionale Sensoren, Heizbefehle, fehlgeschlagenes Speichern, mobile Darstellung und Subscription-Cleanup. Das Panel lädt ausschließlich lokale Dateien und benötigt kein CDN.

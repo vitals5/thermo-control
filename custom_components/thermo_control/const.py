@@ -24,6 +24,7 @@ CONF_FROST = "frost_temperature"
 PRESETS = ("none", "eco", "comfort", "boost", "away")
 PRESET_DEFAULTS = {"none": 20.0, "eco": 17.0, "comfort": 21.0, "boost": 25.0, "away": 15.0}
 DEFAULTS = {
+    CONF_SENSOR: None,
     CONF_WINDOWS: [],
     CONF_INTERVAL: 600,
     CONF_THRESHOLD: 0.5,
