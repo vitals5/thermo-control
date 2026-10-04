@@ -1,6 +1,6 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `1.2.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `1.2.1`.
 
 ## Installation und Seitenleisten-Panel
 
@@ -14,6 +14,8 @@ Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte Climate-E
 6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten ausgeschaltet; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
 
 **Der Config Flow legt ausschließlich die Integration an.** Es gibt keine Einstellungsfelder und keinen Options Flow. Alle Raum- und Geräteparameter werden ausschließlich im Seitenleisten-Panel verwaltet. YAML und eine eigene `panel_custom`-Konfiguration sind nicht erforderlich. Ein bereits vorhandener leerer `thermo_control:`-Eintrag aus Version 1.1 wird aus Kompatibilitätsgründen importiert und kann danach aus YAML entfernt werden. Es wird nur eine Integration angelegt.
+
+Thermo Control ist als `hub` eingestuft und erscheint nach dem Hinzufügen unter **Einstellungen → Geräte & Dienste → Integrationen**, auch ohne angelegte Räume. Bis Version 1.2.0 führte die Einstufung als `helper` dazu, dass HA den Eintrag im Bereich **Helfer** anzeigte. Nach einem Update auf 1.2.1 und einem Neustart von Home Assistant erscheint der vorhandene Eintrag in der Integrationsübersicht. Anschließend die Browserseite neu laden; ein Löschen oder erneutes Anlegen ist nicht erforderlich.
 
 Alle Entitätsfelder bieten Texteingabe mit Live-Suche nach Anzeigename oder Entitäts-ID. Die Treffer zeigen Name, ID und den aktuellen Messwert bzw. Zustand. Thermostat-Treffer zeigen ihre gemessene Temperatur. Ausgewählte Entitäten behalten eine live aktualisierte Vorschau. Für mehrere Thermostate oder Kontakte einzeln nach weiteren Entitäten suchen und hinzufügen; über das Kreuz lassen sie sich entfernen. Auch die Gerätefelder für Kalibrierung, Ventilposition und interne Temperatur sind durchsuchbar. Temperatursensorfelder bieten nur Entitäten mit einer Temperatureinheit an. Pfeiltasten und Enter wählen Treffer aus; Escape schließt die Vorschlagsliste. Vollständig eingegebene, vorhandene Entitäts-IDs werden beim Speichern übernommen. Unvollständige oder unbekannte Eingaben müssen ausgewählt oder gelöscht werden.
 
