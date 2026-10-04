@@ -773,9 +773,9 @@ test("group mode and preset selectors control the whole group and fit mobile car
     { domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.ground", hvac_mode: "off" } },
   ]);
   const fits = await page.evaluate(() => {
-    const card = window.panel.shadowRoot.querySelector(".group-summary");
+    const card = window.panel.shadowRoot.querySelector(".group-card");
     const bounds = card.getBoundingClientRect();
-    return bounds.left >= 0 && bounds.right <= innerWidth && [...card.querySelectorAll("select")].every((select) => select.getBoundingClientRect().right <= bounds.right && select.getBoundingClientRect().height >= 44);
+    return bounds.left >= 0 && bounds.right <= innerWidth && [...card.querySelectorAll("select")].every((select) => select.getBoundingClientRect().right <= bounds.right && select.getBoundingClientRect().height === 38);
   });
   expect(fits).toBe(true);
   await page.evaluate(() => window.updateEntity("climate.ground", { state: "unavailable", attributes: { temperature: 21 } }));
@@ -1042,4 +1042,75 @@ test("late history responses cannot replace a newer time range or restore a disc
   await page.evaluate(() => { window.panel.remove(); window.resolveHistory[2](window.historyData); });
   const children = await page.evaluate(() => window.panel.shadowRoot.querySelector("#history-chart").children.length);
   expect(children).toBe(0);
+});
+
+async function compactGroups(page) {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.groups = [{ id: "ground", name: "Erdgeschoss", control: {} }, { id: "upper", name: "Obergeschoss", control: {} }];
+    const original = window.panel._data.rooms[0];
+    const rooms = [original, ...["kitchen", "office", "bath"].map((id) => ({ id, config: { ...original.config, name: id, trvs: ["climate.wall"] }, entity_id: `climate.${id}` }))].map((room) => ({ ...room, config: { ...room.config, group_id: "ground" } }));
+    window.updateEntity("climate.living", { state: "heat", attributes: { temperature: 18, current_temperature: 21, hvac_action: "heating" } });
+    window.updateEntity("climate.kitchen", { state: "heat", attributes: { temperature: 18, current_temperature: 22, hvac_action: "idle" } });
+    window.updateEntity("climate.office", { state: "unavailable", attributes: { current_temperature: 99, hvac_action: "heating" } });
+    window.updateEntity("climate.bath", { state: "heat", attributes: { temperature: 18, current_temperature: 23, hvac_action: "idle" } });
+    window.updateEntity("climate.ground", { state: "heat", attributes: { temperature: 18, current_temperature: 22, hvac_modes: ["off", "heat"], preset_modes: ["none", "eco", "comfort", "schedule"], preset_mode: "schedule", hvac_action: "heating" } });
+    window.updateEntity("climate.upper", { state: "unavailable", attributes: {} });
+    window.updateSnapshot({ rooms, settings, groups: [{ id: "ground", entity_id: "climate.ground" }, { id: "upper", entity_id: "climate.upper" }] });
+  });
+}
+
+for (const width of [320, 390, 1280]) {
+  test(`group cards stay two rows and 84px tall with inline actions at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await compactGroups(page);
+    const card = page.locator('.group-card[data-group-id="ground"]');
+    await expect(card.locator(".group-state")).toHaveText("· 4 Räume");
+    await expect(card.locator(".group-current")).toHaveText("22,0 °C");
+    await expect(card.locator(".group-heating")).toBeVisible();
+    await expect(card.locator('.group-heating ha-icon')).toHaveAttribute("icon", "mdi:fire");
+    await expect(card.locator(".group-heating-count")).toHaveText("1 heizt");
+    await expect(page.getByLabel("Erdgeschoss: Preset", { exact: true })).toHaveValue("schedule");
+    await expect(card.locator("label")).toHaveCount(0);
+    const geometry = await card.evaluate((node) => {
+      const box = node.getBoundingClientRect(), controls = [...node.querySelectorAll('.group-card-actions > *')];
+      return { box: box.toJSON(), controls: controls.map((item) => item.getBoundingClientRect().toJSON()), buttons: [...node.querySelectorAll('.target-stepper button')].map((item) => item.getBoundingClientRect().toJSON()), header: node.querySelector('.group-card-header').getBoundingClientRect().toJSON(), targetFont: getComputedStyle(node.querySelector('.target-input')).fontSize, overflow: node.scrollWidth > node.clientWidth };
+    });
+    expect(geometry.box.height).toBe(84);
+    expect(geometry.header.height).toBe(16);
+    expect(geometry.controls).toHaveLength(3);
+    expect(geometry.controls.every((control) => control.height === 38 && control.y === geometry.controls[0].y && control.left >= geometry.box.left && control.right <= geometry.box.right)).toBe(true);
+    expect(geometry.buttons.every((button) => button.width === 34 && button.height === 36)).toBe(true);
+    expect(geometry.targetFont).toBe("13px");
+    expect(geometry.overflow).toBe(false);
+    const upper = page.locator('.group-card[data-group-id="upper"]');
+    await expect(upper.locator(".group-current")).toHaveText("—");
+    await expect(upper.locator(".group-heating")).toBeHidden();
+    await expect(page.getByLabel("Obergeschoss: Heizung", { exact: true })).toBeDisabled();
+    if (width === 390) await page.locator("#group-cards").screenshot({ path: "dist/thermo-control-groups-mobile.png" });
+    await page.evaluate(() => {
+      const settings = structuredClone(window.panel._data.settings); settings.groups[0].name = "Erdgeschoss mit einem sehr langen Gruppennamen";
+      window.updateSnapshot({ settings, revision: window.panel._data.revision + 1 });
+    });
+    const long = page.locator('.group-card[data-group-id="ground"]');
+    await expect(long.locator("h2")).toHaveAttribute("title", "Erdgeschoss mit einem sehr langen Gruppennamen");
+    expect(await long.evaluate((node) => node.scrollWidth <= node.clientWidth && node.getBoundingClientRect().height === 84)).toBe(true);
+  });
+}
+
+test("compact group status updates averages and excludes unavailable room readings", async ({ page }) => {
+  await compactGroups(page);
+  const card = page.locator('.group-card[data-group-id="ground"]');
+  await page.evaluate(() => window.updateEntity("climate.kitchen", { state: "heat", attributes: { current_temperature: 24, temperature: 18, hvac_action: "idle" } }));
+  await expect(card.locator(".group-current")).toHaveText("22,7 °C");
+  await page.evaluate(() => window.updateEntity("climate.living", { state: "unknown", attributes: { current_temperature: 50, hvac_action: "heating" } }));
+  await expect(card.locator(".group-current")).toHaveText("23,5 °C");
+  await expect(card.locator(".group-heating")).toBeHidden();
+  await page.evaluate(() => {
+    window.updateEntity("climate.ground", { state: "unavailable", attributes: { current_temperature: 22 } });
+    for (const id of ["kitchen", "bath"]) window.updateEntity(`climate.${id}`, { state: "unavailable", attributes: { current_temperature: 50 } });
+  });
+  await expect(card.locator(".group-current")).toHaveText("—");
+  await expect(page.getByLabel("Erdgeschoss: Sollwert", { exact: true })).toBeDisabled();
 });
