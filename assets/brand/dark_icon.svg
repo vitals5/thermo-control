@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Thermo Control">
+<rect width="256" height="256" rx="58" fill="#287757"/>
+<g fill="none" stroke-linecap="round" stroke-width="17">
+  <path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#ffffff"/>
+  <path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/>
+  <path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#ffffff"/>
+  <path d="M58 219 H198" stroke="#ffffff"/>
+</g>
+</svg>

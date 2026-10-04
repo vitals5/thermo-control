@@ -40,3 +40,27 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:panel
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tests, hassfest, panel]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build and validate release assets
+        run: python scripts/build-release.py --tag "$GITHUB_REF_NAME"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "Thermo Control $GITHUB_REF_NAME" \
+            --notes-file "releases/$GITHUB_REF_NAME.md" \
+            --latest \
+            dist/thermo-control-*.zip dist/SHA256SUMS

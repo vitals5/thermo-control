@@ -1,12 +1,21 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.0`.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="custom_components/thermo_control/brand/dark_logo@2x.png">
+  <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
+</picture>
+
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.1`.
 
 Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
 
 Bestehende Räume bleiben bei ihrer bisherigen Thermostatregelung. Für Fußbodenheizung im Raumeditor **Heizungstyp → Fußbodenheizung** wählen. Globale FBH-Parameter und Luxtronik-Zuordnungen werden im Tab **Einstellungen** eingerichtet; eigene Raum- und Gruppenparameter sind optional. Gruppen erhalten Climate-Entitäten; Raumventile melden den tatsächlichen `hvac_action` ihrer Geräte.
 
 Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wärmebedarf** als Sensoren. Die optionale Freigabe erlaubt Raumventile nur im konfigurierten Automatikmodus und mit ausreichend warmem Vorlauf. Verdichter- und Warmwassersteuerung bleiben beim Luxtronik-Controller. Die Mindestlauf-/Ruhezeiten gelten für Raumventile. Für Diagramme müssen **History/Recorder** die Raum-/Gruppen-Climates und den Vorlaufsensor aufzeichnen; das Panel nutzt deren Historie ohne externe Bibliotheken.
+
+Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
+
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.1` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
