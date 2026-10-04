@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.3`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.4`.
 
-Neu in **2.0.3**: Heizpausen senken den Gerätesollwert auf Frostschutz ab und erhalten `heat` sowie die Temperaturanzeige. Auto folgt dem geräteeigenen Zeitplan und pausiert die externe Regelung; das Panel kennzeichnet und schützt diesen Betrieb.
+Neu in **2.0.4**: Gruppen verwenden wie einzelne Räume eine gemeinsame Heizmodus- und Preset-Auswahl. Die Master-Sollwertverschiebung hat ausschließlich einen Regler; Schnellwahlbuttons entfallen.
+
+Seit **2.0.3**: Heizpausen senken den Gerätesollwert auf Frostschutz ab und erhalten `heat` sowie die Temperaturanzeige. Auto folgt dem geräteeigenen Zeitplan und pausiert die externe Regelung; das Panel kennzeichnet und schützt diesen Betrieb.
 
 Seit **2.0.2**: Raum- und Gruppen-Stepper mit 0,5-°C-Schritten, sofortiger Sollwertvorschau und 400-ms-Debouncing. Das zweispaltige Raumraster und die volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten funktionieren auch auf schmalen Displays.
 
@@ -19,7 +21,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.4` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 

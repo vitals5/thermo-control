@@ -244,8 +244,13 @@ test("four tabs are keyboard accessible and master offset is submitted", async (
   await mount(page, true);
   await expect(page.getByRole("tab")).toHaveCount(4);
   await expect(page.getByRole("tab", { name: "Übersicht", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "Party", exact: true }).click();
-  expect(await page.evaluate(() => window.messages.find((message) => message.type.endsWith("master_offset")).offset)).toBe(2);
+  await expect(page.locator(".master button")).toHaveCount(0);
+  await page.locator("#master-offset").focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  expect(await page.evaluate(() => window.messages.filter((message) => message.type.endsWith("master_offset")).at(-1).offset)).toBe(2);
   await expect(page.locator("#master-value")).toHaveText("2 °C");
   await page.getByRole("tab", { name: "Übersicht", exact: true }).focus();
   await page.keyboard.press("End");
@@ -720,7 +725,40 @@ test("groups containing Auto rooms disable their target but allow explicit mode 
   });
   await expect(page.getByLabel("Erdgeschoss: Sollwert", { exact: true })).toBeDisabled();
   await expect(page.locator("#group-cards .increase")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Gruppe heizen", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Gruppe Auto", exact: true }).click();
+  await expect(page.getByLabel("Erdgeschoss: Heizung", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Erdgeschoss: Preset", { exact: true })).toBeDisabled();
+  await page.getByLabel("Erdgeschoss: Heizung", { exact: true }).selectOption("auto");
   expect(await page.evaluate(() => window.services)).toEqual([{ domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.ground", hvac_mode: "auto" } }]);
+});
+
+test("group mode and preset selectors control the whole group and fit mobile cards", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.groups = [{ id: "ground", name: "Erdgeschoss", control: {} }];
+    window.updateEntity("climate.ground", { state: "heat", attributes: { temperature: 21, hvac_modes: ["off", "heat"], preset_modes: ["none", "eco", "comfort", "boost", "away"], preset_mode: "comfort", hvac_action: "idle" } });
+    window.updateSnapshot({ settings, groups: [{ id: "ground", entity_id: "climate.ground" }] });
+  });
+  const mode = page.getByLabel("Erdgeschoss: Heizung", { exact: true });
+  const preset = page.getByLabel("Erdgeschoss: Preset", { exact: true });
+  await expect(mode).toHaveValue("heat");
+  await expect(preset).toHaveValue("comfort");
+  await expect(page.locator('#group-cards .controls button')).toHaveCount(0);
+  await expect(mode.locator('option[value="auto"]')).toHaveJSProperty("disabled", true);
+  await preset.selectOption("eco");
+  await mode.selectOption("off");
+  expect(await page.evaluate(() => window.services)).toEqual([
+    { domain: "climate", service: "set_preset_mode", data: { entity_id: "climate.ground", preset_mode: "eco" } },
+    { domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.ground", hvac_mode: "off" } },
+  ]);
+  const fits = await page.evaluate(() => {
+    const card = window.panel.shadowRoot.querySelector(".group-summary");
+    const bounds = card.getBoundingClientRect();
+    return bounds.left >= 0 && bounds.right <= innerWidth && [...card.querySelectorAll("select")].every((select) => select.getBoundingClientRect().right <= bounds.right && select.getBoundingClientRect().height >= 44);
+  });
+  expect(fits).toBe(true);
+  await page.evaluate(() => window.updateEntity("climate.ground", { state: "unavailable", attributes: { temperature: 21 } }));
+  await expect(mode).toBeDisabled();
+  await expect(preset).toBeDisabled();
 });
