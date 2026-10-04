@@ -17,7 +17,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import Event, HomeAssistant, State, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -91,14 +91,9 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.devices: dict[str, dict[str, Any]] = {}
         for entity_id in self.trvs:
             device = {**DEVICE_DEFAULTS, **self.config.get(CONF_DEVICES, {}).get(entity_id, {})}
-            if CONF_REGULATED_MODE not in self.config.get(CONF_DEVICES, {}).get(entity_id, {}):
-                state = hass.states.get(entity_id)
-                if (
-                    state
-                    and "heat" not in state.attributes.get("hvac_modes", [])
-                    and "auto" in state.attributes.get("hvac_modes", [])
-                ):
-                    device[CONF_REGULATED_MODE] = "auto"
+            # Older configurations used auto as a regulated mode. External
+            # control now always uses heat; the physical auto mode is respected.
+            device[CONF_REGULATED_MODE] = HVACMode.HEAT
             if not device.get(CONF_CALIBRATION_ENTITY) and not device.get(CONF_CALIBRATION_TOPIC):
                 device[CONF_CALIBRATION_ENTITY] = discover_related(
                     hass, entity_id, "number", "local_temperature_calibration"
@@ -159,6 +154,27 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Process contacts promptly; coalesce noisy device and sensor reports."""
         if self._closed:
             return
+        entity_id = event.data["entity_id"]
+        old, new = event.data.get("old_state"), event.data.get("new_state")
+        if (
+            entity_id in self.trvs
+            and old
+            and new
+            and old.state != new.state
+            and HVACMode.AUTO in (old.state, new.state)
+        ):
+            self._forget_commands(entity_id)
+        if (
+            self.mode == HVACMode.AUTO
+            and event.data["entity_id"] in self.trvs
+            and (old := event.data.get("old_state")) is not None
+            and old.state == HVACMode.AUTO
+            and (new := event.data.get("new_state")) is not None
+            and new.state == HVACMode.HEAT
+        ):
+            # A deliberate manual switch on a device resumes external control.
+            # Other devices that remain in auto are still left untouched.
+            self.mode = HVACMode.HEAT
         if event.data["entity_id"] in self.config[CONF_WINDOWS]:
             self._update_windows()
             self._publish()
@@ -249,7 +265,33 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Keep desired mode and temperature even while the interlock is active."""
         async with self._lock:
             if mode is not None:
+                if not self.supports_mode(mode):
+                    raise ServiceValidationError(
+                        "Der gewünschte Modus wird nicht von allen Thermostaten unterstützt."
+                    )
+                previous_mode = self.mode
                 self.mode = mode
+                try:
+                    for entity_id in self.trvs:
+                        state = self._state(entity_id)
+                        if state is None:
+                            continue
+                        wanted = HVACMode.AUTO if mode == HVACMode.AUTO else HVACMode.HEAT
+                        # Only explicit user mode changes may enter or leave auto.
+                        if (mode == HVACMode.AUTO and state.state != wanted) or (
+                            mode != HVACMode.AUTO and state.state == HVACMode.AUTO
+                        ):
+                            await self._call(
+                                entity_id,
+                                "climate",
+                                "set_hvac_mode",
+                                {"entity_id": entity_id, "hvac_mode": wanted},
+                                allow_auto=True,
+                            )
+                except (HomeAssistantError, TimeoutError):
+                    self.mode = previous_mode
+                    self._publish()
+                    raise
             if preset is not None:
                 if preset == "none":
                     self.target = self.manual_target
@@ -292,6 +334,39 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def control_config(self) -> dict[str, Any]:
         return self.manager.control_for(self.config) if self.manager else self.config
 
+    def supports_mode(self, mode: HVACMode) -> bool:
+        physical = HVACMode.AUTO if mode == HVACMode.AUTO else HVACMode.HEAT
+        if mode not in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO):
+            return False
+        for entity_id in self.trvs:
+            state = self.hass.states.get(entity_id)
+            modes = state.attributes.get("hvac_modes") if state else None
+            if modes is not None:
+                if physical not in modes:
+                    return False
+            elif physical == HVACMode.AUTO and (not state or state.state != HVACMode.AUTO):
+                return False
+        return True
+
+    def _is_auto(self, state: State | None) -> bool:
+        if self.mode == HVACMode.AUTO:
+            return True
+        if state is None:
+            return False
+        modes = state.attributes.get("hvac_modes", [])
+        return state.state == HVACMode.AUTO or ("auto" in modes and "heat" not in modes)
+
+    @property
+    def auto_devices(self) -> list[str]:
+        return [entity_id for entity_id in self.trvs if self._is_auto(self._state(entity_id))]
+
+    @property
+    def native_auto(self) -> bool:
+        states = [state for entity_id in self.trvs if (state := self._state(entity_id))]
+        return self.mode == HVACMode.AUTO or bool(
+            states and all(self._is_auto(state) for state in states)
+        )
+
     def _publish(self) -> None:
         positions: list[float] = []
         device_status = {}
@@ -305,6 +380,8 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 positions.append(position)
             device_status[entity_id] = {
                 "available": state is not None,
+                "hvac_mode": state.state if state else None,
+                "external_control": state is not None and not self._is_auto(state),
                 "hvac_action": state.attributes.get("hvac_action") if state else None,
                 "position": position,
                 "child_lock": state.attributes.get("child_lock") if state else None,
@@ -317,6 +394,19 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "error": self._errors.get(entity_id),
             }
         room = self._room_temperature()
+        native_targets = []
+        if self.native_auto:
+            for entity_id in self.trvs:
+                state = self._state(entity_id)
+                if state and self._is_auto(state):
+                    unit = state.attributes.get(
+                        "temperature_unit", self.hass.config.units.temperature_unit
+                    )
+                    if (value := celsius(state.attributes.get("temperature"), unit)) is not None:
+                        native_targets.append(value)
+        target = (
+            sum(native_targets) / len(native_targets) if native_targets else self.effective_target
+        )
         actions = [
             device["hvac_action"] for device in device_status.values() if device["available"]
         ]
@@ -333,8 +423,14 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(
             {
                 "temperature": room,
-                "target": self.effective_target,
-                "mode": HVACMode.OFF if self.window_blocked else self.mode,
+                "target": target,
+                "mode": HVACMode.AUTO
+                if self.native_auto
+                else HVACMode.OFF
+                if self.window_blocked
+                else self.mode,
+                "native_auto": self.native_auto,
+                "auto_devices": self.auto_devices,
                 "action": action,
                 "preset": self.preset,
                 "position": round(sum(positions) / len(positions), 1) if positions else None,
@@ -364,7 +460,10 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.mode == HVACMode.HEAT
             and not self.window_blocked
             and room is not None
-            and any(self._state(entity_id) for entity_id in self.trvs)
+            and any(
+                (state := self._state(entity_id)) is not None and not self._is_auto(state)
+                for entity_id in self.trvs
+            )
         )
         self.heat_permitted, self.interlock_reason = (
             self.manager.system.permit(room) if self.manager else (True, None)
@@ -391,6 +490,14 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif room >= self.effective_target + config[CONF_TOLERANCE]:
                 self._demand = False
             self.heat_demand = 100.0 if self._demand else 0.0
+        if any(
+            (state := self._state(entity_id)) is not None
+            and self._is_auto(state)
+            and state.attributes.get("hvac_action") == HVACAction.HEATING
+            for entity_id in self.trvs
+        ):
+            # Auto demand is observed hardware activity, never an external PWM request.
+            self.heat_demand = 100.0
         # Persist transitions before hardware calls so minimum dwell survives restart.
         if previous_control != (self.controller.active, self.controller.switched_at):
             try:
@@ -408,7 +515,11 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._errors.pop(entity_id, None)
             try:
                 await self._sync_trv(entity_id, device, state, output and not self.window_blocked)
-                if enabled and not self._windows_open():
+                if (
+                    enabled
+                    and not self._windows_open()
+                    and not self._is_auto(self._state(entity_id))
+                ):
                     await self._calibrate(entity_id, device, state, room)
             except (HomeAssistantError, TimeoutError, ValueError) as err:
                 self._errors[entity_id] = str(err)
@@ -417,12 +528,35 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
         self._publish()
 
-    async def _call(self, entity_id: str, domain: str, service: str, data: dict[str, Any]) -> bool:
+    def _forget_commands(self, entity_id: str) -> None:
+        # A schedule may change targets without acknowledging our previous writes.
+        for key in list(self._attempts):
+            if key[0] == entity_id:
+                del self._attempts[key]
+
+    async def _call(
+        self,
+        entity_id: str,
+        domain: str,
+        service: str,
+        data: dict[str, Any],
+        *,
+        allow_auto: bool = False,
+    ) -> bool:
         """Suppress unacknowledged duplicate commands and bound every service call."""
+        if not allow_auto and self._is_auto(self._state(entity_id)):
+            return False
+        if allow_auto:
+            self._forget_commands(entity_id)
         key = (entity_id, f"{domain}.{service}")
         now = dt_util.utcnow()
         previous = self._attempts.get(key)
-        if previous and previous[0] == data and (now - previous[1]).total_seconds() < RETRY_SECONDS:
+        if (
+            not allow_auto
+            and previous
+            and previous[0] == data
+            and (now - previous[1]).total_seconds() < RETRY_SECONDS
+        ):
             return False
         self._attempts[key] = (dict(data), now)
         async with asyncio.timeout(SERVICE_TIMEOUT):
@@ -432,21 +566,13 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _sync_trv(
         self, entity_id: str, device: dict[str, Any], state: State, enabled: bool
     ) -> None:
-        modes = state.attributes.get("hvac_modes", [])
-        regulated = device[CONF_REGULATED_MODE]
-        desired = regulated if enabled else HVACMode.OFF
-        # Off takes priority over all other commands. If unsupported, use frost target.
-        if not enabled and HVACMode.OFF in modes:
-            if state.state != HVACMode.OFF:
-                await self._call(
-                    entity_id,
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": entity_id, "hvac_mode": HVACMode.OFF},
-                )
+        if self._is_auto(self._state(entity_id)):
+            self._forget_commands(entity_id)
             return
-        if regulated not in modes:
-            raise HomeAssistantError(f"Configured regulated mode {regulated} is unsupported")
+        modes = state.attributes.get("hvac_modes", [])
+        desired = HVACMode.HEAT
+        if desired not in modes:
+            raise HomeAssistantError("External control requires the thermostat's heat mode")
         if (
             "manual" in state.attributes.get("preset_modes", [])
             and state.attributes.get("preset_mode") != "manual"
@@ -480,8 +606,6 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if enabled and (self.window_blocked or self._room_temperature() is None):
             await self._sync_trv(entity_id, device, state, False)
             return
-        if desired == HVACMode.OFF:
-            desired = regulated  # Firmware without off: frost protection fallback.
         if state.state != desired:
             await self._call(
                 entity_id,
@@ -493,7 +617,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _calibrate(
         self, entity_id: str, device: dict[str, Any], state: State, room: float
     ) -> None:
-        if not self.config.get(CONF_SENSOR):
+        if self._is_auto(self._state(entity_id)) or not self.config.get(CONF_SENSOR):
             return  # Never recalibrate trusted thermostat readings against their own mean.
         number_id, topic = device.get(CONF_CALIBRATION_ENTITY), device.get(CONF_CALIBRATION_TOPIC)
         if not number_id and not topic:
@@ -558,16 +682,18 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._calibration[entity_id] = {**saved, "attempted_at": now.isoformat()}
         await self._store.async_save(self._storage_data())
         if number_id:
-            await self._call(
+            written = await self._call(
                 entity_id, "number", "set_value", {"entity_id": number_id, "value": value}
             )
         else:
-            await self._call(
+            written = await self._call(
                 entity_id,
                 "mqtt",
                 "publish",
                 {"topic": topic, "payload": str(value), "qos": 0, "retain": False},
             )
+        if not written:
+            return
         self._calibration[entity_id]["value"] = value
         self._save_later()
 

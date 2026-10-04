@@ -71,11 +71,19 @@ class ThermoControlGroup(ClimateEntity):
         return min((member.max_temp for member in self.members), default=35)
 
     @property
+    def hvac_modes(self):
+        members = self.members
+        return [
+            mode
+            for mode in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO)
+            if all(mode in member.hvac_modes for member in members)
+        ]
+
+    @property
     def hvac_mode(self):
-        return (
-            HVACMode.HEAT
-            if any(member.coordinator.mode == HVACMode.HEAT for member in self.members)
-            else HVACMode.OFF
+        modes = {member.hvac_mode for member in self.members}
+        return next(
+            (mode for mode in (HVACMode.HEAT, HVACMode.AUTO) if mode in modes), HVACMode.OFF
         )
 
     @property
@@ -95,6 +103,9 @@ class ThermoControlGroup(ClimateEntity):
             "effective_target_temperature": self.target_temperature,
             "group_id": self.group_id,
             "rooms": [member.entity_id for member in self.members],
+            "auto_rooms": [
+                member.entity_id for member in self.members if member.coordinator.native_auto
+            ],
             "heat_demand": max(
                 (member.coordinator.heat_demand for member in self.members), default=0
             ),
@@ -110,8 +121,18 @@ class ThermoControlGroup(ClimateEntity):
         value = finite(kwargs.get("temperature"))
         if value is None or not self.min_temp <= value <= self.max_temp:
             raise ServiceValidationError("Sollwert liegt außerhalb der gemeinsamen Gruppengrenzen.")
-        if kwargs.get("hvac_mode", "heat") not in self.hvac_modes:
-            raise ServiceValidationError("Nur heat/off werden unterstützt.")
+        mode = kwargs.get("hvac_mode")
+        if mode is not None and mode not in self.hvac_modes:
+            raise ServiceValidationError(
+                "Modus wird nicht von allen Gruppenmitgliedern unterstützt."
+            )
+        if any(member.coordinator.native_auto for member in self.members) and mode not in (
+            HVACMode.HEAT,
+            HVACMode.OFF,
+        ):
+            raise ServiceValidationError(
+                "Für Gruppensollwerte zuerst alle Räume auf Heizen stellen."
+            )
         for member in self.members:
             await member.async_set_temperature(**kwargs)
 
@@ -119,13 +140,17 @@ class ThermoControlGroup(ClimateEntity):
         from homeassistant.exceptions import ServiceValidationError
 
         if hvac_mode not in self.hvac_modes:
-            raise ServiceValidationError("Nur heat/off werden unterstützt.")
+            raise ServiceValidationError(
+                "Modus wird nicht von allen Gruppenmitgliedern unterstützt."
+            )
         for member in self.members:
             await member.async_set_hvac_mode(hvac_mode)
 
     async def async_set_preset_mode(self, preset_mode):
         from homeassistant.exceptions import ServiceValidationError
 
+        if any(member.coordinator.native_auto for member in self.members):
+            raise ServiceValidationError("Im Auto-Modus gilt der geräteeigene Zeitplan.")
         if preset_mode not in PRESETS or any(
             not (member.min_temp - 5 if preset_mode == "none" else member.min_temp)
             <= (

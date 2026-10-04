@@ -132,11 +132,12 @@ async def test_sensor_loss_stops_heat(coordinator, service_calls, hass):
     hass.states.async_set("sensor.room", "unavailable")
     await coordinator.async_set_intent(mode=HVACMode.HEAT)
     assert not coordinator.data["available"]
-    assert all(
-        data["hvac_mode"] == "off"
+    assert {
+        data["entity_id"]
         for _, service, data in service_calls
-        if service == "set_hvac_mode"
-    )
+        if service == "set_temperature" and data["temperature"] == 5
+    } == set(coordinator.trvs)
+    assert not [call for call in service_calls if call[1] == "set_hvac_mode"]
     assert not [call for call in service_calls if call[0] == "number"]
 
 
@@ -242,13 +243,13 @@ async def test_fahrenheit_source_and_target(coordinator, hass, service_calls):
     assert coordinator._calibration["climate.a"]["value"] == -3
 
 
-async def test_off_even_when_regulated_mode_is_invalid(coordinator, service_calls):
+async def test_pause_uses_low_target_despite_legacy_auto_configuration(coordinator, service_calls):
     coordinator.devices["climate.a"]["regulated_mode"] = "auto"
     await coordinator._tick()
     assert (
         "climate",
-        "set_hvac_mode",
-        {"entity_id": "climate.a", "hvac_mode": "off"},
+        "set_temperature",
+        {"entity_id": "climate.a", "temperature": 5},
     ) in service_calls
 
 
@@ -346,7 +347,7 @@ async def test_missing_measurements_stop_heat_and_recover(coordinator, hass, ser
     assert {
         data["entity_id"]
         for _, service, data in service_calls
-        if service == "set_hvac_mode" and data["hvac_mode"] == "off"
+        if service == "set_temperature" and data["temperature"] == 5
     } == set(coordinator.trvs)
     service_calls.clear()
     state = hass.states.get("climate.a")

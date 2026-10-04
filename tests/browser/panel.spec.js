@@ -657,3 +657,70 @@ test("dense week histories retain peaks and bound chart geometry", async ({ page
   const labels = await page.locator('#history-chart text').allTextContents();
   expect(labels.some((text) => text.includes('30.0'))).toBe(true);
 });
+
+test("native Auto shows the device target and requires a deliberate manual takeover", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.attributes.hvac_modes = ["off", "heat", "auto"];
+    window.updateEntity("climate.living", state);
+  });
+  await page.getByLabel("Heizung", { exact: true }).selectOption("auto");
+  expect(await page.evaluate(() => window.services.map((call) => [call.service, call.data.hvac_mode]))).toEqual([["set_hvac_mode", "auto"]]);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.state = "auto";
+    Object.assign(state.attributes, { native_auto: true, temperature: 19, hvac_action: "heating", desired_hvac_mode: "heat" });
+    window.updateEntity("climate.living", state);
+  });
+  await expect(page.getByLabel("Heizung", { exact: true })).toHaveValue("auto");
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("19.0");
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Preset", { exact: true })).toBeDisabled();
+  await expect(page.getByText("Auto · Gerätezeitplan; externe Regelung pausiert.", { exact: true })).toBeVisible();
+  await expect(page.locator(".room-tile")).toHaveClass(/heating/);
+  await page.getByLabel("Heizung", { exact: true }).selectOption("heat");
+  expect(await page.evaluate(() => window.services.map((call) => [call.service, call.data.hvac_mode]))).toEqual([["set_hvac_mode", "auto"], ["set_hvac_mode", "heat"]]);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.state = "heat";
+    Object.assign(state.attributes, { native_auto: false, temperature: 21 });
+    window.updateEntity("climate.living", state);
+  });
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Preset", { exact: true })).toBeEnabled();
+});
+
+test("switching a device to Auto cancels a debounced target before it is sent", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.getByLabel("Solltemperatur", { exact: true }).fill("21.5");
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("21.5");
+  await page.clock.runFor(200);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.state = "auto";
+    Object.assign(state.attributes, { native_auto: true, temperature: 18.5 });
+    window.updateEntity("climate.living", state);
+  });
+  await page.clock.runFor(500);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("18.5");
+  await expect(page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true })).toBeDisabled();
+});
+
+test("groups containing Auto rooms disable their target but allow explicit mode changes", async ({ page }) => {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.groups = [{ id: "ground", name: "Erdgeschoss", control: {} }];
+    window.updateEntity("climate.ground", { state: "heat", attributes: { temperature: 20, hvac_modes: ["off", "heat", "auto"], auto_rooms: ["climate.living"], hvac_action: "idle" } });
+    window.updateSnapshot({ settings, groups: [{ id: "ground", entity_id: "climate.ground" }] });
+  });
+  await expect(page.getByLabel("Erdgeschoss: Sollwert", { exact: true })).toBeDisabled();
+  await expect(page.locator("#group-cards .increase")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Gruppe heizen", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Gruppe Auto", exact: true }).click();
+  expect(await page.evaluate(() => window.services)).toEqual([{ domain: "climate", service: "set_hvac_mode", data: { entity_id: "climate.ground", hvac_mode: "auto" } }]);
+});

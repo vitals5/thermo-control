@@ -100,7 +100,7 @@ async def test_floor_controller_sends_pulses_and_window_overrides_minimum(
     await c._tick()
     assert not c.controller.active
     assert any(
-        call[1] == "set_hvac_mode" and call[2]["hvac_mode"] == "off" for call in service_calls
+        call[1] == "set_temperature" and call[2]["temperature"] == 5 for call in service_calls
     )
     freezer.tick(timedelta(minutes=22))
     await c._tick()

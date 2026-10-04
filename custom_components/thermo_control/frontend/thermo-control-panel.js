@@ -328,7 +328,7 @@ class ThermoControlPanel extends HTMLElement {
         .error{border:1px solid #d89e91;background:var(--card-background-color,#fff);color:var(--error-color,#ae4933);border-radius:9px;padding:13px 16px;margin-bottom:20px}.error:empty{display:none}dialog{border:1px solid var(--divider-color,#d4ded5);border-radius:16px;background:var(--card-background-color,#fff);color:inherit;padding:0;max-width:850px;width:calc(100% - 32px);max-height:90vh;box-shadow:0 25px 80px #0003}dialog::backdrop{background:#10261b66}.dialog-header{display:flex;justify-content:space-between;align-items:center;padding:23px 26px;border-bottom:1px solid var(--divider-color,#dde5de)}.dialog-header p{font-size:12px;margin-top:6px}.dialog-body{padding:25px 26px;max-height:65vh;overflow:auto}.fields{display:grid;grid-template-columns:1fr 1fr;gap:20px}.wide{grid-column:1/-1}.help{font-size:11px;line-height:1.5;font-weight:400;color:var(--secondary-text-color,#69786e)}details{border:1px solid var(--divider-color,#dce4dd);border-radius:10px;margin-top:24px;padding:16px}summary{cursor:pointer;font-size:14px;font-weight:600}details .fields{margin-top:20px}.device{margin-top:22px}.device h3{font-size:14px;margin:0 0 16px}.checkbox{flex-direction:row;align-items:center;font-size:12px;font-weight:400}.dialog-footer{display:flex;justify-content:flex-end;align-items:center;gap:10px;border-top:1px solid var(--divider-color,#dde5de);padding:16px 26px}.danger{color:var(--error-color,#b4523d);margin-right:auto}.confirm{padding:24px}.confirm p{margin:16px 0 24px}.confirm-actions{display:flex;justify-content:flex-end;gap:10px}.saving{font-size:12px;color:var(--secondary-text-color,#69786e)}[hidden]{display:none!important}
         @media(max-width:650px){main{padding:24px 16px}.toolbar{padding:12px 16px}.menu{display:block}.brand{display:none}.intro{align-items:flex-start}h1{font-size:26px}.intro p{font-size:13px}.intro button{white-space:nowrap;padding:9px 11px;font-size:12px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.dialog-body{padding:20px 18px}.dialog-header,.dialog-footer{padding:16px 18px}.wide{grid-column:auto}.version{font-size:11px}}
       </style>
-      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.0.2</span></header>
+      <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.0.3</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div><button class="primary" id="add-room" disabled>+ Raum hinzufügen</button></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
@@ -374,7 +374,7 @@ class ThermoControlPanel extends HTMLElement {
       const floor = room.config.floor || "Ohne Etage";
       if (floor !== currentFloor) { const heading = create("h2", floor, "rooms-floor"); container.append(heading); currentFloor = floor; }
       const card = create("article", undefined, "room-tile");
-      card.innerHTML = `<div class="card-head"><h2></h2><button class="edit" type="button">Konfigurieren</button></div><div class="status"><span class="dot"></span><span class="status-text"></span></div><div class="measure"><div class="eyebrow">Raumtemperatur</div><span class="temperature">—</span><span class="unit">°C</span><div class="help temperature-source"></div></div><div class="metrics"><div class="metric"><span>Ventilöffnung</span><strong class="position">—</strong></div><div class="metric"><span>Thermostate</span><strong class="trv-count"></strong></div><div class="metric"><span>Fenster</span><strong class="window-status">—</strong></div></div><div class="controls"><label>Heizung<select class="mode" aria-label="Heizung"><option value="off">Aus</option><option value="heat">Heizen</option></select></label><label>Preset<select class="preset" aria-label="Preset"></select></label></div>`;
+      card.innerHTML = `<div class="card-head"><h2></h2><button class="edit" type="button">Konfigurieren</button></div><div class="status"><span class="dot"></span><span class="status-text"></span></div><div class="measure"><div class="eyebrow">Raumtemperatur</div><span class="temperature">—</span><span class="unit">°C</span><div class="help temperature-source"></div></div><div class="metrics"><div class="metric"><span>Ventilöffnung</span><strong class="position">—</strong></div><div class="metric"><span>Thermostate</span><strong class="trv-count"></strong></div><div class="metric"><span>Fenster</span><strong class="window-status">—</strong></div></div><div class="controls"><label>Heizung<select class="mode" aria-label="Heizung"><option value="off">Pause / Frostschutz</option><option value="heat">Heizen</option><option value="auto">Auto · Gerätezeitplan</option></select></label><label>Preset<select class="preset" aria-label="Preset"></select></label></div>`;
       card.querySelector("h2").textContent = room.config.name;
       card.querySelector(".edit").onclick = () => this._openEditor(room);
       card.querySelector(".trv-count").textContent = String(room.config.trvs.length);
@@ -408,21 +408,24 @@ class ThermoControlPanel extends HTMLElement {
       card.querySelector(".temperature-source").textContent = room.config.temperature_sensor ? "Externer Sensor" : room.config.trvs.length > 1 ? "Mittelwert der Thermostattemperaturen" : "Thermostattemperatur";
       card.querySelector(".position").textContent = Number.isFinite(attributes.valve_position) ? `${attributes.valve_position} %` : "—";
       card.querySelector(".window-status").textContent = !room.config.window_sensors?.length ? "Keine" : attributes.window_open ? "Offen" : "Geschlossen";
-      const status = !available ? "Nicht verfügbar" : attributes.window_open ? "Fensterpause" : attributes.hvac_action === "heating" ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit / Leerlauf" : attributes.hvac_action === "off" || state.state === "off" ? "Ausgeschaltet" : "Heizstatus unbekannt";
+      const status = !available ? "Nicht verfügbar" : attributes.window_open && !this._nativeAuto(state) ? "Fensterpause" : attributes.hvac_action === "heating" ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit / Leerlauf" : attributes.hvac_action === "off" || state.state === "off" ? "Ausgeschaltet" : "Heizstatus unbekannt";
       card.querySelector(".status-text").textContent = status;
       card.querySelector(".status").className = `status ${attributes.window_open ? "window" : attributes.hvac_action === "heating" ? "heating" : ""}`;
       card.classList.toggle("heating", Boolean(available && attributes.hvac_action === "heating"));
       const mode = card.querySelector(".mode");
-      if (this.shadowRoot.activeElement !== mode) mode.value = attributes.desired_hvac_mode || state?.state || "off";
+      const nativeAuto = state?.state === "auto" || attributes.native_auto;
+      const supportedModes = attributes.hvac_modes || (nativeAuto ? ["off", "heat", "auto"] : ["off", "heat"]);
+      for (const option of mode.options) option.disabled = !supportedModes.includes(option.value);
+      if (this.shadowRoot.activeElement !== mode) mode.value = nativeAuto ? "auto" : attributes.desired_hvac_mode || state?.state || "off";
       const preset = card.querySelector(".preset");
       if (this.shadowRoot.activeElement !== preset) preset.value = attributes.preset_mode || "none";
-      for (const field of card.querySelectorAll("select")) field.disabled = !available;
+      mode.disabled = !available; preset.disabled = !available || nativeAuto;
       this._updateTargetStepper(card, room.entity_id, state);
       const detail = card.querySelector(".control-preview");
       const percent = Number.isFinite(attributes.heat_demand) ? `${attributes.heat_demand.toFixed(0)} % Bedarf` : "";
       const trend = Number.isFinite(attributes.temperature_rate) ? ` · ${attributes.temperature_rate.toFixed(2)} °C/h` : "";
       const prediction = Number.isFinite(attributes.predicted_temperature) ? ` · Prognose ${attributes.predicted_temperature.toFixed(1)} °C` : "";
-      detail.textContent = percent + trend + prediction + (attributes.pre_shutoff ? " · Vorausschauende Abschaltung" : "") + (attributes.interlock_reason ? " · Wärmepumpen-Freigabe fehlt" : "");
+      detail.textContent = nativeAuto ? "Auto · Gerätezeitplan; externe Regelung pausiert." : (attributes.auto_devices?.length ? `${attributes.auto_devices.length} Thermostat(e) in Auto · ` : "") + percent + trend + prediction + (attributes.pre_shutoff ? " · Vorausschauende Abschaltung" : "") + (attributes.interlock_reason ? " · Wärmepumpen-Freigabe fehlt" : "");
     }
   }
 
@@ -471,16 +474,20 @@ class ThermoControlPanel extends HTMLElement {
     return row;
   }
 
+  _nativeAuto(state) {
+    return state?.state === "auto" || Boolean(state?.attributes?.native_auto || state?.attributes?.auto_rooms?.length);
+  }
+
   _updateTargetStepper(card, entityId, state) {
     const input = card.querySelector(".target-input");
     const [min, max] = this._targetBounds(state);
-    const available = Boolean(entityId && state && !["unknown", "unavailable"].includes(state.state) && Number.isFinite(state.attributes?.temperature) && min <= max);
+    const available = Boolean(entityId && state && !this._nativeAuto(state) && !["unknown", "unavailable"].includes(state.state) && Number.isFinite(state.attributes?.temperature) && min <= max);
     if (!available) this._cancelTarget(entityId);
     let pending = this._targets.get(entityId);
     if (pending?.sent && state?.attributes.temperature === pending.value) { this._cancelTarget(entityId); pending = null; }
     const value = pending?.value ?? state?.attributes?.temperature;
     input.min = min; input.max = max;
-    if (this.shadowRoot.activeElement !== input || (pending && Number(input.value) !== pending.value)) input.value = Number.isFinite(value) ? value.toFixed(1) : "";
+    if (!available || this.shadowRoot.activeElement !== input || (pending && Number(input.value) !== pending.value)) input.value = Number.isFinite(value) ? value.toFixed(1) : "";
     input.disabled = !available;
     card.querySelector(".decrease").disabled = !available || value <= min;
     card.querySelector(".increase").disabled = !available || value >= max;
@@ -503,7 +510,7 @@ class ThermoControlPanel extends HTMLElement {
   _queueTarget(entityId, value) {
     const state = this._hass?.states[entityId];
     const [min, max] = this._targetBounds(state);
-    if (!this.isConnected || !state || ["unknown", "unavailable"].includes(state.state) || !Number.isFinite(value) || value < min || value > max || value / TARGET_STEP % 1) return;
+    if (!this.isConnected || !state || this._nativeAuto(state) || ["unknown", "unavailable"].includes(state.state) || !Number.isFinite(value) || value < min || value > max || value / TARGET_STEP % 1) return;
     const previous = this._targets.get(entityId);
     // The old HA value may still be visible after an earlier command was accepted.
     const hasSentTarget = Boolean(previous?.sent || previous?.hasSentTarget || this._targetRequests.has(entityId));
@@ -520,7 +527,7 @@ class ThermoControlPanel extends HTMLElement {
     // Serialize overlapping requests for an entity so the final tap always wins.
     const previous = this._targetRequests.get(entityId);
     if (previous) await previous.catch(() => {});
-    if (!this.isConnected || this._targets.get(entityId) !== pending) return;
+    if (!this.isConnected || this._targets.get(entityId) !== pending || this._nativeAuto(this._hass?.states[entityId])) return;
     pending.sent = true;
     const request = Promise.resolve().then(() => this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: pending.value }));
     this._targetRequests.set(entityId, request);
@@ -611,9 +618,7 @@ class ThermoControlPanel extends HTMLElement {
         const picker = document.createElement("thermo-control-entity-picker");
         this._configurePicker(picker, key, title, domain, device[key] || "", { temperatureOnly: key === "internal_sensor", emptyLabel: "Automatische Erkennung / keine Zuordnung" }); fields.append(picker);
       }
-      const modeLabel = create("label", "Regelnder HVAC-Modus"), mode = document.createElement("select"); mode.name = "regulated_mode";
-      for (const value of ["heat", "auto"]) { const option = create("option", value); option.value = value; mode.append(option); }
-      mode.value = device.regulated_mode; modeLabel.append(mode); fields.append(modeLabel);
+      fields.append(create("p", "Externe Regelung verwendet Heizen (heat). Auto folgt dem Gerätezeitplan und wird in der Übersicht oder am Thermostat gewählt.", "help wide"));
       const topicLabel = create("label", "MQTT-Topic (alternativ zur Number-Entität)", "wide"), topic = document.createElement("input"); topic.name = "calibration_topic"; topic.value = device.calibration_topic || ""; topic.placeholder = "zigbee2mqtt/wohnzimmer/set/local_temperature_calibration"; topicLabel.append(topic); fields.append(topicLabel);
       const numeric = create("div", undefined, "fields wide"); this._numberFields(numeric, DEVICE_NUMBERS, device); fields.append(numeric);
       const checkboxLabel = create("label", undefined, "checkbox wide"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.name = "temperature_is_calibrated"; checkbox.checked = device.temperature_is_calibrated;
@@ -626,7 +631,8 @@ class ThermoControlPanel extends HTMLElement {
   _readDevices() {
     this._draft.devices ||= {};
     for (const section of this.shadowRoot.querySelectorAll(".device")) {
-      const device = {};
+      const modes = this._hass.states[section.dataset.entityId]?.attributes.hvac_modes || [];
+      const device = { regulated_mode: modes.includes("auto") && !modes.includes("heat") ? "auto" : "heat" };
       for (const field of section.querySelectorAll("input,select")) {
         if (field.type === "checkbox") device[field.name] = field.checked;
         else if (field.type === "number") device[field.name] = Number(field.value);
@@ -838,7 +844,7 @@ class ThermoControlPanel extends HTMLElement {
       const card = create("article", undefined, "group-summary"); card.dataset.groupId = group.id;
       card.append(create("h2", group.name), create("p", "", "group-state"));
       const controls = create("div", undefined, "controls");
-      for (const [mode, text] of [["heat", "Gruppe heizen"], ["off", "Gruppe ausschalten"]]) { const button = create("button", text); button.onclick = () => { if (mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_hvac_mode", { hvac_mode: mode }); }; controls.append(button); }
+      for (const [mode, text] of [["heat", "Gruppe heizen"], ["off", "Gruppe Frostschutz"], ["auto", "Gruppe Auto"]]) { const button = create("button", text); button.dataset.mode = mode; button.onclick = () => { if (mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_hvac_mode", { hvac_mode: mode }); }; controls.append(button); }
       card.append(controls, this._targetStepper(mapping?.entity_id, group.name, true)); container.append(card);
     }
   }
@@ -855,8 +861,8 @@ class ThermoControlPanel extends HTMLElement {
       const mapping = this._data.groups?.find((item) => item.id === card.dataset.groupId); const state = this._hass?.states[mapping?.entity_id]; const attributes = state?.attributes || {};
       const members = this._data.rooms.filter((room) => room.config.group_id === card.dataset.groupId);
       const heating = members.some((room) => this._hass?.states[room.entity_id]?.attributes.hvac_action === "heating");
-      card.querySelector(".group-state").textContent = `${heating ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit" : "Aus / unbekannt"} · ${members.length} Räume${attributes.mixed_targets ? " · Unterschiedliche Sollwerte" : ""}`;
-      for (const field of card.querySelectorAll(".controls button")) field.disabled = !state || ["unknown", "unavailable"].includes(state.state);
+      card.querySelector(".group-state").textContent = `${heating ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit" : "Aus / unbekannt"} · ${members.length} Räume${attributes.mixed_targets ? " · Unterschiedliche Sollwerte" : ""}${attributes.auto_rooms?.length ? " · Auto-Räume: Gruppensollwert pausiert" : ""}`;
+      for (const field of card.querySelectorAll(".controls button")) field.disabled = !state || ["unknown", "unavailable"].includes(state.state) || !(attributes.hvac_modes || ["off", "heat"]).includes(field.dataset.mode);
       this._updateTargetStepper(card, mapping?.entity_id, state);
     }
   }

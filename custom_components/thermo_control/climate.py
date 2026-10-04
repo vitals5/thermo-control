@@ -66,7 +66,7 @@ class ThermoControlClimate(
         await super().async_added_to_hass()
         if self._restore and (state := await self.async_get_last_state()):
             mode = state.attributes.get("desired_hvac_mode", state.state)
-            if mode in self.hvac_modes:
+            if mode in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO):
                 self.coordinator.mode = HVACMode(mode)
             low, high = self.coordinator.base_temperature_limits()
             target = finite(state.attributes.get("target_temperature_celsius"))
@@ -100,7 +100,15 @@ class ThermoControlClimate(
 
     @property
     def target_temperature(self) -> float:
-        return self.coordinator.effective_target
+        return self.coordinator.data.get("target", self.coordinator.effective_target)
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        return [
+            mode
+            for mode in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO)
+            if self.coordinator.supports_mode(mode)
+        ]
 
     @property
     def min_temp(self) -> float:
@@ -130,7 +138,9 @@ class ThermoControlClimate(
             "target_temperature_celsius": self.coordinator.target,
             "base_target_temperature": self.coordinator.target,
             "current_temperature_celsius": self.coordinator.data["temperature"],
-            "effective_target_temperature": self.coordinator.effective_target,
+            "effective_target_temperature": self.target_temperature,
+            "native_auto": self.coordinator.native_auto,
+            "auto_devices": self.coordinator.auto_devices,
             "heating_type": self.coordinator.config["heating_type"],
             "floor": self.coordinator.config["floor"],
             "group_id": self.coordinator.config["group_id"],
@@ -160,7 +170,9 @@ class ThermoControlClimate(
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode not in self.hvac_modes:
-            raise ServiceValidationError("Only off and heat are supported")
+            raise ServiceValidationError(
+                "Dieser Modus wird nicht von allen Thermostaten unterstützt."
+            )
         await self.coordinator.async_set_intent(mode=HVACMode(hvac_mode))
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -169,13 +181,23 @@ class ThermoControlClimate(
             raise ServiceValidationError("Target temperature is outside the room's supported range")
         mode = kwargs.get("hvac_mode")
         if mode is not None and mode not in self.hvac_modes:
-            raise ServiceValidationError("Only off and heat are supported")
+            raise ServiceValidationError(
+                "Dieser Modus wird nicht von allen Thermostaten unterstützt."
+            )
+        if self.coordinator.native_auto and mode not in (HVACMode.HEAT, HVACMode.OFF):
+            raise ServiceValidationError(
+                "Im Auto-Modus regelt das Gerät. Für Sollwerte zuerst Heizen wählen."
+            )
         offset = self._manager.settings["master_offset"] if self._manager else 0
         await self.coordinator.async_set_intent(
             temperature=temperature - offset, mode=HVACMode(mode) if mode is not None else None
         )
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if self.coordinator.native_auto:
+            raise ServiceValidationError(
+                "Im Auto-Modus verwendet das Thermostat seinen eigenen Zeitplan."
+            )
         if preset_mode not in PRESETS:
             raise ServiceValidationError("Unsupported preset")
         value = (

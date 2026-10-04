@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.2`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.0.3`.
 
-Neu in **2.0.2**: Raum- und Gruppen-Stepper mit 0,5-°C-Schritten, sofortiger Sollwertvorschau und 400-ms-Debouncing. Das zweispaltige Raumraster und die volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten funktionieren auch auf schmalen Displays.
+Neu in **2.0.3**: Heizpausen senken den Gerätesollwert auf Frostschutz ab und erhalten `heat` sowie die Temperaturanzeige. Auto folgt dem geräteeigenen Zeitplan und pausiert die externe Regelung; das Panel kennzeichnet und schützt diesen Betrieb.
+
+Seit **2.0.2**: Raum- und Gruppen-Stepper mit 0,5-°C-Schritten, sofortiger Sollwertvorschau und 400-ms-Debouncing. Das zweispaltige Raumraster und die volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten funktionieren auch auf schmalen Displays.
 
 Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
 
@@ -17,7 +19,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.2` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.0.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -28,7 +30,7 @@ Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte Climate-E
 3. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** nach **Thermo Control** suchen und den leeren Bestätigungsdialog abschließen. Es werden keine Einstellungen abgefragt.
 4. In der linken Seitenleiste **Thermo Control** (`/thermo_control`) öffnen. Das Panel ist für HA-Administratoren sichtbar.
 5. Im Panel **Raum hinzufügen** wählen. Raumname und Thermostate auswählen; externer Raumtemperatursensor und Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
-6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten ausgeschaltet; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
+6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten in Pause/Frostschutz; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
 
 **Der Config Flow legt ausschließlich die Integration an.** Es gibt keine Einstellungsfelder und keinen Options Flow. Alle Raum- und Geräteparameter werden ausschließlich im Seitenleisten-Panel verwaltet. YAML und eine eigene `panel_custom`-Konfiguration sind nicht erforderlich. Ein bereits vorhandener leerer `thermo_control:`-Eintrag aus Version 1.1 wird aus Kompatibilitätsgründen importiert und kann danach aus YAML entfernt werden. Es wird nur eine Integration angelegt.
 
@@ -60,7 +62,7 @@ Die Integration verwendet HA-Entitäten und setzt keine Tuya-Datenpunktnummern v
 | SONOFF TP-WGZBA | −10 … +10 °C, Schritt 0,2 °C | HVAC `heat`, `auto`, `off`; kein zugesicherter Ventilpositionswert |
 | Andere Tuya-TRV-Firmware | geräteabhängig | Grenzen und regelnden HVAC-Modus prüfen |
 
-Die Number-Entität liefert die maßgebliche Schrittweite und Hardwaregrenzen. Zusätzlich begrenzen die UI-Einstellungen den erlaubten Bereich, standardmäßig auf −9 … +9 °C. Für den vollständigen SONOFF-Bereich diese Grenzen auf −10/+10 setzen. Bei Firmware, deren `heat`-Modus das Ventil dauerhaft öffnet, den tatsächlich regelnden Modus `auto` auswählen. TV01/TV02 verwenden `heat` mit `manual`, sofern verfügbar.
+Die Number-Entität liefert die maßgebliche Schrittweite und Hardwaregrenzen. Zusätzlich begrenzen die UI-Einstellungen den erlaubten Bereich, standardmäßig auf −9 … +9 °C. Für den vollständigen SONOFF-Bereich diese Grenzen auf −10/+10 setzen. Externe Regelung setzt einen temperaturregelnden `heat`-Modus voraus. TV01/TV02 verwenden dabei `manual`, sofern verfügbar. Der HVAC-Modus `auto` gehört dem geräteeigenen Zeitplan; Thermo Control überlagert ihn nicht mit einer externen Regelung.
 
 Quellen: [TV02-Zigbee](https://www.zigbee2mqtt.io/devices/TV02-Zigbee.html), [TP-WGZBA](https://www.zigbee2mqtt.io/devices/TP-WGZBA.html). Die Integration wurde gegen HA Core getestet; ein physischer Gerätetest ist in dieser Umgebung nicht möglich.
 
@@ -97,15 +99,15 @@ Bei fehlender Raum-/TRV-Temperatur, ungültigem Number-Zustand oder offenen Kont
 
 Beliebig viele `binary_sensor`-Kontakte oder HA-Binary-Sensor-Gruppen sind möglich. `on` bedeutet offen, `off` geschlossen. Bei mindestens einem offenen Kontakt startet die Abschaltverzögerung. Erst wenn alle Kontakte geschlossen sind, startet die Wiederanlaufverzögerung. Eine erneute Zustandsänderung bricht die jeweils laufende Verzögerung ab; wiederholte identische Meldungen verlängern sie nicht.
 
-Ein fehlender, `unknown` oder `unavailable` Kontakt zählt als offen. Nach Ablauf der Abschaltverzögerung wird `off` an die TRVs geschickt. Unterstützt die Firmware keinen Off-Modus, wird der konfigurierbare Frostschutz-Sollwert verwendet, begrenzt durch die Temperaturgrenzen des Geräts.
+Ein fehlender, `unknown` oder `unavailable` Kontakt zählt als offen. Nach Ablauf der Abschaltverzögerung wird der konfigurierbare Frostschutz-Sollwert (standardmäßig 5 °C) gesendet, begrenzt durch die Temperaturgrenzen des Geräts. Physische Thermostate bleiben in `heat`, damit ihre Temperaturanzeige aktiv bleibt.
 
-Der gewünschte Modus, Sollwert und Preset bleiben erhalten. Änderungen während der Fensterpause gelten nach dem Schließen; ein bewusstes Ausschalten wird nicht durch die Wiederherstellung überschrieben. Bei Ausfall des Raumtemperatursensors wird die Zone als nicht verfügbar markiert und die TRVs erhalten ebenfalls Off/Frostschutz. Nach Rückkehr des Sensors wird der gewünschte Zustand wieder angewendet.
+Der gewünschte Modus, Sollwert und Preset bleiben erhalten. Änderungen während der Fensterpause gelten nach dem Schließen; ein bewusstes Ausschalten wird nicht durch die Wiederherstellung überschrieben. Bei Ausfall des Raumtemperatursensors wird die Zone als nicht verfügbar markiert und extern gesteuerte Thermostate erhalten ebenfalls den Frostschutz-Sollwert. Nach Rückkehr des Sensors wird der gewünschte Zustand wieder angewendet.
 
 Die lokale Fenstererkennung und die Kindersicherung der Geräte werden nicht umgeschaltet. Vorhandene Climate-Attribute werden im Gerätestatus angezeigt; eigene Geräteschutzfunktionen bleiben wirksam.
 
 ## Koordination und Presets
 
-Die virtuelle Raum-Entität ist die führende Stelle für Sollwert und HVAC-Modus. Gruppen übertragen gemeinsame Vorgaben an ihre Räume. Abweichende physische Einstellungen werden wieder synchronisiert. Geräte-Presets werden, soweit unterstützt, auf `manual` gesetzt, damit lokale Zeitpläne die Raumvorgabe nicht ersetzen. Die Raum-Presets verwenden einheitliche, konfigurierbare Sollwerte statt uneinheitlicher Firmware-Presets:
+Im Modus **Heizen** ist die virtuelle Raum-Entität die führende Stelle für Sollwert und HVAC-Modus. Gruppen übertragen gemeinsame Vorgaben an ihre Räume. Abweichende physische Einstellungen werden wieder synchronisiert. Geräte-Presets werden, soweit unterstützt, auf `manual` gesetzt, damit lokale Zeitpläne die Raumvorgabe nicht ersetzen. Die Raum-Presets verwenden einheitliche, konfigurierbare Sollwerte statt uneinheitlicher Firmware-Presets:
 
 | Preset | Standard |
 | --- | --- |
@@ -117,7 +119,13 @@ Die virtuelle Raum-Entität ist die führende Stelle für Sollwert und HVAC-Modu
 
 Bei Heizkörpern bleibt die native TRV-Regelung aktiv; die Hysterese schätzt den Wärmebedarf. Der tatsächliche `hvac_action`-Status stammt aus den physischen Geräten. FBH-Räume verwenden dagegen die vorausschauende PI/TPI-Regelung aus der Spezifikation. `boost` ist ein erhöhtes Raumziel und bleibt bis zum nächsten Presetwechsel aktiv.
 
-`valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `temperature_source` (`external_sensor` / `thermostats`), `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
+**Heizpausen erhalten die Geräteanzeige:** Die virtuelle Einstellung **Pause / Frostschutz** (`off`), eine Fensterpause und ein FBH-PWM-Ruheanteil senken ausschließlich den physischen Sollwert ab. Der Hardware-Modus bleibt `heat`. Raum-Sollwert und Preset bleiben gespeichert; beim Weiterheizen wird der effektive Raum-Sollwert wieder gesendet. Die Geräte regeln weiterhin selbst anhand ihres jeweils empfangenen Sollwerts. Der Frostschutz ist kein garantierter vollständiger Ventilschluss: Unterhalb seiner Temperaturgrenze kann das Gerät heizen.
+
+**Auto verwendet den Gerätezeitplan:** Auto im Panel sendet einmalig `climate.set_hvac_mode: auto`, sofern alle Raumthermostate dies unterstützen. Danach erfolgen keine automatischen Sollwert-, Modus-, Preset- oder Kalibrierungsbefehle. Auch ein am Gerät aktivierter Auto-Modus wird respektiert. Das Panel zeigt den gemeldeten Gerätesollwert (bei mehreren Auto-Thermostaten dessen Mittelwert) und sperrt Sollwert-Stepper sowie Raum-Presets. Fensterkontakte und Luxtronik-Freigabe werden weiter angezeigt, steuern Auto-Geräte jedoch nicht; hier gelten deren eigene Schutzfunktionen. Die Master-Verschiebung wirkt nur auf extern gesteuerte Geräte. Ein bewusster Wechsel auf **Heizen** oder **Pause / Frostschutz** übernimmt die externe Steuerung wieder. Ein Wechsel am Thermostat von Auto zu Heat erlaubt ebenfalls die externe Regelung.
+
+In einem gemischten Raum bleiben einzelne Auto-Thermostate unangetastet; die übrigen Geräte folgen dem Raumziel. Enthält eine Gruppe Auto-Räume, sind gemeinsame Sollwert- und Presetänderungen gesperrt, bis alle Räume bewusst auf Heizen gestellt werden. Die tatsächliche Heizaktion wird in allen Modi aus `hvac_action` übernommen. Bei Auto zählt eine gemeldete Heizaktion als beobachteter Wärmebedarf.
+
+`valve_position` zeigt den Mittelwert aller verfügbaren Positionswerte (Climate-Attribut `position` oder zugeordnete Sensoren). Fehlende Werte werden ausgelassen; ohne Positionswerte ist das Attribut `null`. Zusätzliche Attribute: `native_auto`, `auto_devices`, `temperature_source` (`external_sensor` / `thermostats`), `desired_hvac_mode`, `target_temperature_celsius`, `manual_temperature`, `window_open`, `window_pending`, `thermostats`, `temperature_sensor`, `device_status`.
 
 Ein fehlendes TRV blockiert die übrigen Geräte nicht. Wiederholungen nicht bestätigter Steuerbefehle erfolgen höchstens einmal pro Minute. Jeder Serviceaufruf hat ein Timeout von zehn Sekunden. Sensor- und Geräteereignisse werden gebündelt; jede Minute wird außerdem auf ausstehende Wiederholungen und Kalibrierungen geprüft. Die State-Listener verwenden ausschließlich `async_track_state_change_event`; Listener, Timer und laufende Aufgaben werden beim Entladen entfernt.
 
