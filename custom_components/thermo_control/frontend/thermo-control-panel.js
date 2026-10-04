@@ -1,5 +1,10 @@
 /* Local Home Assistant custom panel. No build step or external resources. */
 const PRESETS = { none: "Manuell", eco: "Eco", comfort: "Komfort", boost: "Boost", away: "Abwesend" };
+const TARGET_STEP = 0.5;
+const TARGET_MIN = 5;
+const TARGET_MAX = 30;
+const TARGET_DEBOUNCE = 400;
+const TARGET_CONFIRM_TIMEOUT = 10000;
 const NUMBERS = [
   ["tolerance", "Hysterese", "°C", 0.1, 2, 0.1],
   ["trend_window", "Trend-Zeitfenster", "Min.", 30, 60, 1],
@@ -235,6 +240,8 @@ class ThermoControlPanel extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._data = { rooms: [], revision: 0, defaults: {}, device_defaults: {} };
     this._cards = new Map();
+    this._targets = new Map();
+    this._targetRequests = new Map();
     this._connection = null;
     this._generation = 0;
     this._busy = false;
@@ -263,6 +270,7 @@ class ThermoControlPanel extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._historyTimer);
+    for (const entityId of this._targets.keys()) this._cancelTarget(entityId);
     this._historyGeneration += 1;
     this._generation += 1;
     if (this._unsubscribe) this._unsubscribe();
@@ -300,6 +308,8 @@ class ThermoControlPanel extends HTMLElement {
     const changed = this._fingerprint !== fingerprint;
     this._fingerprint = fingerprint;
     this._data = { ...data, settings: data.settings || structuredClone(SYSTEM_VALUES) };
+    const entities = new Set([...data.rooms, ...(data.groups || [])].map((item) => item.entity_id));
+    for (const entityId of this._targets.keys()) if (!entities.has(entityId)) this._cancelTarget(entityId);
     if (changed) { this._renderCards(); this._renderAssignments(); this._renderGroupCards(); this._graphChoices(); }
     else this._updateCards();
     this._updateSystem();
@@ -320,7 +330,7 @@ class ThermoControlPanel extends HTMLElement {
       </style>
       <header class="toolbar"><button class="menu" aria-label="Seitenleiste öffnen">☰</button><span class="brand" aria-hidden="true">♨</span><strong>Thermo Control</strong><span class="version">Raumregelung · 2.0.1</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div><button class="primary" id="add-room" disabled>+ Raum hinzufügen</button></section>
-      <div id="error" class="error" role="alert"></div><section class="grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
+      <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
         <label class="wide">Raumname<input name="name" required maxlength="100" placeholder="z. B. Wohnzimmer"></label>
         <label>Etage / Zone<input name="floor" maxlength="100" placeholder="z. B. Erdgeschoss"></label>
@@ -362,9 +372,9 @@ class ThermoControlPanel extends HTMLElement {
     const rooms = [...this._data.rooms].sort((a, b) => (a.config.floor || "Ohne Etage").localeCompare(b.config.floor || "Ohne Etage", "de") || a.config.name.localeCompare(b.config.name, "de"));
     for (const room of rooms) {
       const floor = room.config.floor || "Ohne Etage";
-      if (floor !== currentFloor) { const heading = create("h2", floor, "wide"); container.append(heading); currentFloor = floor; }
-      const card = create("article", undefined, "card");
-      card.innerHTML = `<div class="card-head"><h2></h2><button class="edit" type="button">Konfigurieren</button></div><div class="status"><span class="dot"></span><span class="status-text"></span></div><div class="measure"><div class="eyebrow">Raumtemperatur</div><span class="temperature">—</span><span class="unit">°C</span><div class="help temperature-source"></div></div><div class="metrics"><div class="metric"><span>Ventilöffnung</span><strong class="position">—</strong></div><div class="metric"><span>Thermostate</span><strong class="trv-count"></strong></div><div class="metric"><span>Fenster</span><strong class="window-status">—</strong></div></div><div class="controls"><label class="target">Solltemperatur<div class="target-row"><input type="number" class="target-input" step="0.5" aria-label="Solltemperatur"><span class="target-unit">°C</span></div></label><label>Heizung<select class="mode" aria-label="Heizung"><option value="off">Aus</option><option value="heat">Heizen</option></select></label><label>Preset<select class="preset" aria-label="Preset"></select></label></div>`;
+      if (floor !== currentFloor) { const heading = create("h2", floor, "rooms-floor"); container.append(heading); currentFloor = floor; }
+      const card = create("article", undefined, "room-tile");
+      card.innerHTML = `<div class="card-head"><h2></h2><button class="edit" type="button">Konfigurieren</button></div><div class="status"><span class="dot"></span><span class="status-text"></span></div><div class="measure"><div class="eyebrow">Raumtemperatur</div><span class="temperature">—</span><span class="unit">°C</span><div class="help temperature-source"></div></div><div class="metrics"><div class="metric"><span>Ventilöffnung</span><strong class="position">—</strong></div><div class="metric"><span>Thermostate</span><strong class="trv-count"></strong></div><div class="metric"><span>Fenster</span><strong class="window-status">—</strong></div></div><div class="controls"><label>Heizung<select class="mode" aria-label="Heizung"><option value="off">Aus</option><option value="heat">Heizen</option></select></label><label>Preset<select class="preset" aria-label="Preset"></select></label></div>`;
       card.querySelector("h2").textContent = room.config.name;
       card.querySelector(".edit").onclick = () => this._openEditor(room);
       card.querySelector(".trv-count").textContent = String(room.config.trvs.length);
@@ -372,15 +382,9 @@ class ThermoControlPanel extends HTMLElement {
       for (const [value, label] of Object.entries(PRESETS)) { const option = create("option", label); option.value = value; presets.append(option); }
       card.querySelector(".mode").onchange = (event) => this._service(room, "set_hvac_mode", { hvac_mode: event.target.value });
       presets.onchange = (event) => this._service(room, "set_preset_mode", { preset_mode: event.target.value });
-      const input = card.querySelector(".target-input");
-      input.onchange = (event) => { if (event.target.reportValidity()) this._service(room, "set_temperature", { temperature: Number(event.target.value) }); };
-      const row = card.querySelector(".target-row");
-      for (const [delta, label] of [[-0.5, "Temperatur senken"], [0.5, "Temperatur erhöhen"]]) {
-        const button = create("button", delta < 0 ? "−" : "+"); button.type = "button"; button.setAttribute("aria-label", `${room.config.name}: ${label}`);
-        button.onclick = () => { const value = Math.min(Number(input.max), Math.max(Number(input.min), Number(input.value) + delta)); this._service(room, "set_temperature", { temperature: value }); };
-        row.append(button);
-      }
+      const edit = card.querySelector(".edit"); edit.textContent = "⚙"; edit.setAttribute("aria-label", "Konfigurieren"); edit.title = `${room.config.name} konfigurieren`;
       const details = create("div", "", "help control-preview"); card.append(details);
+      card.append(this._targetStepper(room.entity_id, room.config.name));
       card.dataset.floor = room.config.floor || "Ohne Etage";
       card.querySelector(".card-head").before(create("div", room.config.floor || "Ohne Etage", "eyebrow"));
       container.append(card);
@@ -402,20 +406,18 @@ class ThermoControlPanel extends HTMLElement {
       card.querySelector(".temperature").textContent = Number.isFinite(current) ? current.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—";
       card.querySelector(".unit").textContent = unit;
       card.querySelector(".temperature-source").textContent = room.config.temperature_sensor ? "Externer Sensor" : room.config.trvs.length > 1 ? "Mittelwert der Thermostattemperaturen" : "Thermostattemperatur";
-      card.querySelector(".target-unit").textContent = unit;
       card.querySelector(".position").textContent = Number.isFinite(attributes.valve_position) ? `${attributes.valve_position} %` : "—";
       card.querySelector(".window-status").textContent = !room.config.window_sensors?.length ? "Keine" : attributes.window_open ? "Offen" : "Geschlossen";
       const status = !available ? "Nicht verfügbar" : attributes.window_open ? "Fensterpause" : attributes.hvac_action === "heating" ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit / Leerlauf" : attributes.hvac_action === "off" || state.state === "off" ? "Ausgeschaltet" : "Heizstatus unbekannt";
       card.querySelector(".status-text").textContent = status;
       card.querySelector(".status").className = `status ${attributes.window_open ? "window" : attributes.hvac_action === "heating" ? "heating" : ""}`;
-      const input = card.querySelector(".target-input");
-      if (this.shadowRoot.activeElement !== input) input.value = attributes.temperature ?? "";
-      input.min = attributes.min_temp ?? 5; input.max = attributes.max_temp ?? 35;
+      card.classList.toggle("heating", Boolean(available && attributes.hvac_action === "heating"));
       const mode = card.querySelector(".mode");
       if (this.shadowRoot.activeElement !== mode) mode.value = attributes.desired_hvac_mode || state?.state || "off";
       const preset = card.querySelector(".preset");
       if (this.shadowRoot.activeElement !== preset) preset.value = attributes.preset_mode || "none";
-      for (const field of card.querySelectorAll("input,select,.target-row button")) field.disabled = !available;
+      for (const field of card.querySelectorAll("select")) field.disabled = !available;
+      this._updateTargetStepper(card, room.entity_id, state);
       const detail = card.querySelector(".control-preview");
       const percent = Number.isFinite(attributes.heat_demand) ? `${attributes.heat_demand.toFixed(0)} % Bedarf` : "";
       const trend = Number.isFinite(attributes.temperature_rate) ? ` · ${attributes.temperature_rate.toFixed(2)} °C/h` : "";
@@ -425,10 +427,119 @@ class ThermoControlPanel extends HTMLElement {
   }
 
   async _service(room, service, data) {
+    if (service !== "set_temperature") this._cancelTarget(room.entity_id);
     this._error("");
     try { await this._hass.callService("climate", service, { entity_id: room.entity_id, ...data }); }
     catch (error) { this._error(this._message(error)); }
     this._updateCards();
+    this._updateSystem();
+  }
+
+  _targetBounds(state) {
+    // Keep the standard range, respecting devices with a narrower supported range.
+    const attributes = state?.attributes || {};
+    const min = Math.max(TARGET_MIN, Number.isFinite(attributes.min_temp) ? attributes.min_temp : TARGET_MIN);
+    const max = Math.min(TARGET_MAX, Number.isFinite(attributes.max_temp) ? attributes.max_temp : TARGET_MAX);
+    return [Math.ceil(min / TARGET_STEP) * TARGET_STEP, Math.floor(max / TARGET_STEP) * TARGET_STEP];
+  }
+
+  _targetStepper(entityId, name, group = false) {
+    const row = create("div", undefined, "target-stepper"); row.setAttribute("role", "group"); row.setAttribute("aria-label", `${name}: Solltemperatur`);
+    row.dataset.entityId = entityId || "";
+    const display = create("div", undefined, "target-display");
+    const input = create("input", undefined, "target-input");
+    Object.assign(input, { type: "number", min: TARGET_MIN, max: TARGET_MAX, step: TARGET_STEP, required: true });
+    input.setAttribute("inputmode", "decimal"); input.setAttribute("aria-label", group ? `${name}: Sollwert` : "Solltemperatur");
+    input.oninput = () => {
+      if (input.value && input.checkValidity()) this._queueTarget(entityId, Number(input.value));
+      else this._cancelTarget(entityId);
+    };
+    input.onblur = () => { this._updateCards(); this._updateSystem(); };
+    const unit = create("span", "°", "target-unit"); unit.setAttribute("aria-hidden", "true"); display.append(input, unit);
+    const buttons = [[-TARGET_STEP, "Temperatur senken", "decrease"], [TARGET_STEP, "Temperatur erhöhen", "increase"]].map(([delta, label, className]) => {
+      const button = create("button", delta < 0 ? "−" : "+", className); button.type = "button"; button.setAttribute("aria-label", `${name}: ${label}`);
+      button.onclick = () => {
+        const current = this._targets.get(entityId)?.value ?? this._hass?.states[entityId]?.attributes.temperature;
+        if (!Number.isFinite(current)) return;
+        const [min, max] = this._targetBounds(this._hass.states[entityId]);
+        const value = Math.min(max, Math.max(min, Math.round((current + delta) / TARGET_STEP) * TARGET_STEP));
+        if (value !== current) this._queueTarget(entityId, value);
+      };
+      return button;
+    });
+    row.append(buttons[0], display, buttons[1]);
+    return row;
+  }
+
+  _updateTargetStepper(card, entityId, state) {
+    const input = card.querySelector(".target-input");
+    const [min, max] = this._targetBounds(state);
+    const available = Boolean(entityId && state && !["unknown", "unavailable"].includes(state.state) && Number.isFinite(state.attributes?.temperature) && min <= max);
+    if (!available) this._cancelTarget(entityId);
+    let pending = this._targets.get(entityId);
+    if (pending?.sent && state?.attributes.temperature === pending.value) { this._cancelTarget(entityId); pending = null; }
+    const value = pending?.value ?? state?.attributes?.temperature;
+    input.min = min; input.max = max;
+    if (this.shadowRoot.activeElement !== input || (pending && Number(input.value) !== pending.value)) input.value = Number.isFinite(value) ? value.toFixed(1) : "";
+    input.disabled = !available;
+    card.querySelector(".decrease").disabled = !available || value <= min;
+    card.querySelector(".increase").disabled = !available || value >= max;
+    card.querySelector(".target-stepper").setAttribute("aria-busy", String(Boolean(pending)));
+  }
+
+  _cancelTarget(entityId, restore = false) {
+    const pending = this._targets.get(entityId);
+    if (!pending) return;
+    clearTimeout(pending.timer); clearTimeout(pending.expiry);
+    this._targets.delete(entityId);
+    if (restore) {
+      const value = this._hass?.states[entityId]?.attributes.temperature;
+      for (const row of this.shadowRoot.querySelectorAll(".target-stepper")) {
+        if (row.dataset.entityId === entityId) row.querySelector("input").value = Number.isFinite(value) ? value.toFixed(1) : "";
+      }
+    }
+  }
+
+  _queueTarget(entityId, value) {
+    const state = this._hass?.states[entityId];
+    const [min, max] = this._targetBounds(state);
+    if (!this.isConnected || !state || ["unknown", "unavailable"].includes(state.state) || !Number.isFinite(value) || value < min || value > max || value / TARGET_STEP % 1) return;
+    const previous = this._targets.get(entityId);
+    // The old HA value may still be visible after an earlier command was accepted.
+    const hasSentTarget = Boolean(previous?.sent || previous?.hasSentTarget || this._targetRequests.has(entityId));
+    this._cancelTarget(entityId);
+    if (value !== state.attributes.temperature || hasSentTarget) {
+      const pending = { value, sent: false, hasSentTarget };
+      pending.timer = setTimeout(() => this._sendTarget(entityId, pending), TARGET_DEBOUNCE);
+      this._targets.set(entityId, pending);
+    }
+    this._updateCards(); this._updateSystem();
+  }
+
+  async _sendTarget(entityId, pending) {
+    // Serialize overlapping requests for an entity so the final tap always wins.
+    const previous = this._targetRequests.get(entityId);
+    if (previous) await previous.catch(() => {});
+    if (!this.isConnected || this._targets.get(entityId) !== pending) return;
+    pending.sent = true;
+    const request = Promise.resolve().then(() => this._hass.callService("climate", "set_temperature", { entity_id: entityId, temperature: pending.value }));
+    this._targetRequests.set(entityId, request);
+    this._error("");
+    try {
+      await request;
+      if (this._targets.get(entityId) === pending) {
+        // A successful service call can precede the HA state event. Preserve the preview.
+        pending.expiry = setTimeout(() => {
+          if (this._targets.get(entityId) !== pending) return;
+          this._cancelTarget(entityId, true); this._updateCards(); this._updateSystem();
+        }, TARGET_CONFIRM_TIMEOUT);
+      }
+    } catch (error) {
+      if (this._targets.get(entityId) === pending) { this._cancelTarget(entityId, true); this._error(this._message(error)); }
+    } finally {
+      if (this._targetRequests.get(entityId) === request) this._targetRequests.delete(entityId);
+      if (this.isConnected) { this._updateCards(); this._updateSystem(); }
+    }
   }
 
   _climateExclusions() {
@@ -579,6 +690,57 @@ class ThermoControlPanel extends HTMLElement {
     const root = this.shadowRoot, main = root.querySelector("main");
     const style = create("style"); style.textContent = `
       .tabs{display:flex;gap:8px;overflow-x:auto;margin:22px 0}.tabs button{white-space:nowrap}.tabs [aria-selected=true]{background:var(--primary-color,#287757);color:white}.system-bar,.master,.group-summary,.analytics,.settings-box,.assignments{padding:20px;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#dde5de);border-radius:14px;margin-bottom:22px}.system-bar{display:flex;flex-wrap:wrap;gap:12px 24px}.system-bar strong{display:block;margin-top:4px}.system-bar span{font-size:12px}.master{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.master label{flex:1;min-width:180px}.master input[type=range]{padding:0;accent-color:var(--primary-color,#287757)}.master output{font-size:22px}.group-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.group-summary .controls{margin-top:14px}.chart-controls{display:flex;flex-wrap:wrap;gap:16px;align-items:end}.chart-controls label{flex:1;min-width:150px}.chart-controls .checkbox{flex-direction:row}.chart{display:block;width:100%;min-height:260px;margin:20px 0 0;touch-action:pan-y}.chart text{fill:var(--secondary-text-color,#69786e);font:11px system-ui}.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;margin:14px 0}.legend span:before{content:"";display:inline-block;width:18px;height:3px;margin-right:6px;background:var(--color)}.table-wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:14px 10px;border-bottom:1px solid var(--divider-color,#dde5de)}td:first-child{min-width:150px}td .help{overflow-wrap:anywhere}td select{min-width:140px}.settings-box h2{margin-bottom:20px}.settings-box .fields{margin:18px 0}.settings-box .primary{margin-top:16px}.group-row{display:flex;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--divider-color,#dde5de)}.group-row span{flex:1}.group-form{margin-top:18px;padding-top:16px;border-top:1px solid var(--divider-color,#dde5de)}.target-row input{min-width:65px}.target-row button{padding:10px;font-size:20px}.form-note{margin-top:12px;font-size:13px;color:var(--primary-color,#287757)}@media(max-width:650px){.tabs button{font-size:12px;padding:9px}.master{gap:10px}.system-bar{padding:14px;font-size:12px}.chart-controls{gap:10px}.chart{min-height:200px}}
+      .rooms-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        padding: 0 4px;
+      }
+      .rooms-floor { grid-column: 1 / -1; margin: 12px 0 4px; }
+      .room-tile {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        background: var(--card-background-color, #1c1c1e);
+        border-radius: 14px;
+        padding: 10px;
+        min-height: 135px;
+        min-width: 0;
+        color: var(--primary-text-color, #f5f5f7);
+        border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.08));
+        transition: border-color 0.2s ease, background 0.2s ease;
+      }
+      .room-tile.heating {
+        border-color: rgba(255, 152, 0, 0.6);
+        background: linear-gradient(180deg, rgba(255, 152, 0, 0.08) 0%, var(--card-background-color, #1c1c1e) 100%);
+      }
+      .room-tile .card-head { gap: 4px; }
+      .room-tile h2 { min-width: 0; flex: 1; font-size: 15px; overflow-wrap: anywhere; }
+      .room-tile .edit { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; }
+      .room-tile > .eyebrow { font-size: 9px; overflow-wrap: anywhere; }
+      .room-tile .status { gap: 4px; font-size: 11px; }
+      .room-tile .dot { flex: none; }
+      .room-tile .measure { margin: 12px 0; }
+      .room-tile .temperature { font-size: 34px; }
+      .room-tile .unit { font-size: 16px; margin-left: 3px; }
+      .room-tile .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 0; margin-bottom: 10px; }
+      .room-tile .metric span { font-size: 10px; overflow-wrap: anywhere; }
+      .room-tile .metric strong { font-size: 12px; overflow-wrap: anywhere; }
+      .room-tile .controls { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .room-tile select { min-width: 0; min-height: 44px; padding: 8px; }
+      .room-tile .help { overflow-wrap: anywhere; }
+      .room-tile .control-preview { margin-top: 8px; font-size: 10px; }
+      .target-stepper { display: grid; grid-template-columns: minmax(44px, 1fr) minmax(0, 1.2fr) minmax(44px, 1fr); gap: 0; width: 100%; margin-top: 12px; border: 1px solid var(--divider-color, rgba(255,255,255,.08)); border-radius: 999px; background: var(--card-background-color, #29292c); color: var(--primary-text-color, #f5f5f7); overflow: hidden; }
+      .target-stepper button { min-width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 24px; touch-action: manipulation; }
+      .target-stepper button:hover { background: var(--divider-color, rgba(255,255,255,.08)); }
+      .target-stepper button:disabled { cursor: default; }
+      .target-display { display: flex; align-items: center; justify-content: center; min-width: 0; border-left: 1px solid var(--divider-color, rgba(255,255,255,.08)); border-right: 1px solid var(--divider-color, rgba(255,255,255,.08)); }
+      .target-display .target-input { width: 4.2ch; flex: 0 1 4.2ch; min-width: 0; min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; text-align: center; font-size: 18px; font-weight: 650; appearance: textfield; }
+      .target-display .target-input::-webkit-inner-spin-button, .target-display .target-input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+      .target-unit { font-size: 18px; font-weight: 650; }
+      .target-stepper :focus-visible { outline-offset: -3px; }
+      @media(max-width:650px) { .room-tile .metrics { grid-template-columns: minmax(0, 1fr); gap: 6px; } .room-tile .metric { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; } .room-tile .metric strong { margin-top: 0; } .master label { overflow-wrap: anywhere; } }
+      @media(max-width:360px) { main { padding-left: 8px; padding-right: 8px; } .target-display .target-input, .target-unit { font-size: 12px; } }
     `; root.append(style);
     const system = create("section", undefined, "system-bar"); system.id = "system-bar"; system.setAttribute("aria-label", "Wärmepumpenstatus"); main.prepend(system);
     const tabs = create("nav", undefined, "tabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", "Thermo Control Bereiche"); system.after(tabs);
@@ -675,10 +837,8 @@ class ThermoControlPanel extends HTMLElement {
       const card = create("article", undefined, "group-summary"); card.dataset.groupId = group.id;
       card.append(create("h2", group.name), create("p", "", "group-state"));
       const controls = create("div", undefined, "controls");
-      const label = create("label", "Gruppen-Sollwert"), input = document.createElement("input"); input.type = "number"; input.step = "0.5"; input.setAttribute("aria-label", `${group.name}: Sollwert`); label.append(input); controls.append(label);
-      input.onchange = () => { if (input.reportValidity() && mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_temperature", { temperature: Number(input.value) }); };
       for (const [mode, text] of [["heat", "Gruppe heizen"], ["off", "Gruppe ausschalten"]]) { const button = create("button", text); button.onclick = () => { if (mapping?.entity_id) this._service({ entity_id: mapping.entity_id }, "set_hvac_mode", { hvac_mode: mode }); }; controls.append(button); }
-      card.append(controls); container.append(card);
+      card.append(controls, this._targetStepper(mapping?.entity_id, group.name, true)); container.append(card);
     }
   }
 
@@ -695,8 +855,8 @@ class ThermoControlPanel extends HTMLElement {
       const members = this._data.rooms.filter((room) => room.config.group_id === card.dataset.groupId);
       const heating = members.some((room) => this._hass?.states[room.entity_id]?.attributes.hvac_action === "heating");
       card.querySelector(".group-state").textContent = `${heating ? "🔥 Heizt" : attributes.hvac_action === "idle" ? "Bereit" : "Aus / unbekannt"} · ${members.length} Räume${attributes.mixed_targets ? " · Unterschiedliche Sollwerte" : ""}`;
-      const input = card.querySelector("input"); if (root.activeElement !== input) input.value = attributes.temperature ?? ""; input.min = attributes.min_temp ?? 5; input.max = attributes.max_temp ?? 35;
-      for (const field of card.querySelectorAll("input,button")) field.disabled = !state || ["unknown", "unavailable"].includes(state.state);
+      for (const field of card.querySelectorAll(".controls button")) field.disabled = !state || ["unknown", "unavailable"].includes(state.state);
+      this._updateTargetStepper(card, mapping?.entity_id, state);
     }
   }
 

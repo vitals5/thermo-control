@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 const path = require("path");
 
 async function mount(page, populated = false) {
-  await page.setContent('<!doctype html><html><body style="margin:0"></body></html>');
+  await page.setContent('<!doctype html><html><body style="margin:0;--card-background-color:#fff;--primary-background-color:#f4f6f4;--secondary-background-color:#eef3ef;--primary-text-color:#23312d;--secondary-text-color:#69786e;--divider-color:#d4ded5"></body></html>');
   await page.addScriptTag({ path: path.resolve("custom_components/thermo_control/frontend/thermo-control-panel.js") });
   await page.evaluate((populated) => {
     const defaults = { window_sensors: [], tolerance: 0.3, calibration_interval: 600, calibration_threshold: 0.5, window_open_delay: 30, window_close_delay: 60, frost_temperature: 5, preset_none: 20, preset_eco: 17, preset_comfort: 21, preset_boost: 25, preset_away: 15 };
@@ -254,8 +254,270 @@ test("four tabs are keyboard accessible and master offset is submitted", async (
   await page.keyboard.press("Home");
   await expect(page.getByRole("tab", { name: "Übersicht", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
-  expect(await page.evaluate(() => window.services.at(-1).data.temperature)).toBe(21.5);
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("21.5");
+  await expect.poll(() => page.evaluate(() => window.services.at(-1)?.data.temperature)).toBe(21.5);
 });
+
+async function pauseClock(page) {
+  const time = new Date("2026-10-04T00:00:00Z");
+  await page.clock.install({ time });
+  await page.clock.pauseAt(time);
+}
+
+test("rapid room taps preview immediately, debounce from the final tap and survive stale HA snapshots", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  const target = page.getByLabel("Solltemperatur", { exact: true });
+  await page.evaluate(() => {
+    const plus = window.panel.shadowRoot.querySelector("#rooms .increase");
+    plus.click(); plus.click(); plus.click();
+  });
+  await expect(target).toHaveValue("22.5");
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await page.clock.runFor(350);
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur senken", exact: true }).click();
+  await expect(target).toHaveValue("22.0");
+  await page.evaluate(() => {
+    window.updateTemperature(20.9);
+    window.updateSnapshot({ revision: 1 }); // Rebuild the tiles while a command is queued.
+  });
+  await expect(target).toHaveValue("22.0");
+  await page.clock.runFor(399);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => page.evaluate(() => window.services)).toEqual([
+    { domain: "climate", service: "set_temperature", data: { entity_id: "climate.living", temperature: 22 } },
+  ]);
+  await page.evaluate(() => window.updateTemperature(21.1));
+  await expect(target).toHaveValue("22.0");
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.attributes.temperature = 22;
+    window.updateEntity("climate.living", state);
+  });
+  expect(await page.evaluate(() => window.panel._targets.size)).toBe(0);
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur senken", exact: true }).click();
+  await expect(target).toHaveValue("21.5");
+});
+
+test("room and group steppers debounce independently in half-degree steps", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.groups = [{ id: "ground", name: "Erdgeschoss", control: {} }];
+    window.updateEntity("climate.ground", { state: "heat", attributes: { temperature: 20, min_temp: 5, max_temp: 35, target_temp_step: 1, hvac_action: "idle" } });
+    window.updateSnapshot({ settings, groups: [{ id: "ground", entity_id: "climate.ground" }] });
+    const root = window.panel.shadowRoot;
+    root.querySelector("#rooms .increase").click();
+    root.querySelector("#group-cards .increase").click();
+    root.querySelector("#group-cards .increase").click();
+    root.querySelector("#group-cards .decrease").click();
+  });
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("21.5");
+  await expect(page.getByLabel("Erdgeschoss: Sollwert", { exact: true })).toHaveValue("20.5");
+  await page.clock.runFor(399);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => page.evaluate(() => window.services.length)).toBe(2);
+  const calls = await page.evaluate(() => window.services.map((call) => call.data));
+  expect(calls).toContainEqual({ entity_id: "climate.living", temperature: 21.5 });
+  expect(calls).toContainEqual({ entity_id: "climate.ground", temperature: 20.5 });
+});
+
+test("returning to the old HA target after an accepted command still sends the final target", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.length)).toBe(1);
+  // The call succeeded, but HA still reports 21 °C. Undo the accepted change.
+  await page.evaluate(() => {
+    const root = window.panel.shadowRoot;
+    root.querySelector(".increase").click();
+    root.querySelector(".decrease").click(); root.querySelector(".decrease").click();
+  });
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("21.0");
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.length)).toBe(2);
+  expect(await page.evaluate(() => window.services.at(-1).data.temperature)).toBe(21);
+});
+
+test("target bounds are 5 to 30 degrees, reject invalid input and avoid redundant commands", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  const target = page.getByLabel("Solltemperatur", { exact: true });
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    Object.assign(state.attributes, { temperature: 29.5, min_temp: 0, max_temp: 40 });
+    window.updateEntity("climate.living", state);
+  });
+  await expect(target).toHaveAttribute("step", "0.5");
+  await expect(target).toHaveAttribute("min", "5");
+  await expect(target).toHaveAttribute("max", "30");
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
+  await expect(target).toHaveValue("30.0");
+  await expect(page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true })).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.at(-1)?.data.temperature)).toBe(30);
+  for (const value of ["30.5", "4.5", "22.3"]) {
+    await target.fill(value);
+    await page.clock.runFor(500);
+  }
+  expect(await page.evaluate(() => window.services.length)).toBe(1);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.attributes.temperature = 5.5;
+    window.updateEntity("climate.living", state);
+  });
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur senken", exact: true }).click();
+  await expect(target).toHaveValue("5.0");
+  await expect(page.getByRole("button", { name: "Wohnzimmer: Temperatur senken", exact: true })).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.at(-1)?.data.temperature)).toBe(5);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.attributes.temperature = 5;
+    window.updateEntity("climate.living", structuredClone(state));
+    state.attributes.temperature = 21;
+    window.updateEntity("climate.living", state);
+    const root = window.panel.shadowRoot;
+    root.querySelector(".increase").click(); root.querySelector(".decrease").click();
+  });
+  await page.clock.runFor(500);
+  expect(await page.evaluate(() => window.services.length)).toBe(2);
+});
+
+test("failed commands roll back the preview and disconnected panels cancel queued commands", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.evaluate(() => {
+    window.panel.hass.callService = async () => { throw { message: "Kein Zugriff auf den Thermostat." }; };
+  });
+  await page.getByLabel("Solltemperatur", { exact: true }).fill("22.5");
+  await page.clock.runFor(400);
+  await expect(page.locator("#error")).toHaveText("Kein Zugriff auf den Thermostat.");
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("21.0");
+  await page.evaluate(() => {
+    window.panel.hass.callService = async (domain, service, data) => window.services.push({ domain, service, data });
+    window.panel.shadowRoot.querySelector("#rooms .increase").click();
+    window.panel.remove();
+  });
+  await page.clock.runFor(1000);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+});
+
+test("typing a target preserves decimal entry and an unconfirmed preview expires", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  const target = page.getByLabel("Solltemperatur", { exact: true });
+  await target.fill("");
+  await target.pressSequentially("22.5");
+  await expect(target).toHaveValue("22.5");
+  await page.clock.runFor(399);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => page.evaluate(() => window.services.at(-1)?.data.temperature)).toBe(22.5);
+  await page.clock.runFor(9999);
+  await expect(target).toHaveValue("22.5");
+  await page.clock.runFor(1);
+  await expect(target).toHaveValue("21.0");
+});
+
+test("unavailable thermostats cancel queued targets and narrower hardware limits are respected", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.state = "unavailable";
+    window.updateEntity("climate.living", state);
+  });
+  await expect(page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true })).toBeDisabled();
+  await page.clock.runFor(500);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.state = "heat";
+    Object.assign(state.attributes, { temperature: 23.5, min_temp: 15, max_temp: 24 });
+    window.updateEntity("climate.living", state);
+  });
+  await page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true }).click();
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("24.0");
+  await expect(page.getByRole("button", { name: "Wohnzimmer: Temperatur erhöhen", exact: true })).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.at(-1)?.data.temperature)).toBe(24);
+});
+
+test("overlapping target calls are serialized and stale responses preserve the last tap", async ({ page }) => {
+  await pauseClock(page);
+  await mount(page, true);
+  await page.evaluate(() => {
+    window.resolveServices = [];
+    window.panel.hass.callService = async (domain, service, data) => {
+      window.services.push({ domain, service, data });
+      await new Promise((resolve) => window.resolveServices.push(resolve));
+    };
+    window.panel.shadowRoot.querySelector("#rooms .increase").click();
+  });
+  await page.clock.runFor(400);
+  await expect.poll(() => page.evaluate(() => window.services.length)).toBe(1);
+  await page.evaluate(() => {
+    const button = window.panel.shadowRoot.querySelector("#rooms .increase"); button.click(); button.click();
+  });
+  await page.clock.runFor(400);
+  expect(await page.evaluate(() => window.services.length)).toBe(1);
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("22.5");
+  await page.evaluate(() => {
+    const state = structuredClone(window.panel.hass.states["climate.living"]);
+    state.attributes.temperature = 21.5;
+    window.updateEntity("climate.living", state);
+    window.resolveServices[0]();
+  });
+  await expect.poll(() => page.evaluate(() => window.services.length)).toBe(2);
+  expect(await page.evaluate(() => window.services.at(-1).data.temperature)).toBe(22.5);
+  await expect(page.getByLabel("Solltemperatur", { exact: true })).toHaveValue("22.5");
+  await page.evaluate(() => window.resolveServices[1]());
+});
+
+for (const width of [320, 390, 1280]) {
+  test(`two-column room tiles and full-width touch steppers at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page, true);
+    await page.evaluate(() => {
+      const room = structuredClone(window.panel._data.rooms[0]);
+      room.id = "bedroom"; room.config.name = "Schlafzimmer mit sehr langem Namen";
+      window.updateSnapshot({ rooms: [...window.panel._data.rooms, room] });
+      const state = structuredClone(window.panel.hass.states["climate.living"]);
+      state.attributes.hvac_action = "heating";
+      window.updateEntity("climate.living", state);
+    });
+    const geometry = await page.evaluate(() => {
+      const root = window.panel.shadowRoot, grid = root.querySelector(".rooms-grid"), tiles = [...grid.querySelectorAll(".room-tile")];
+      return {
+        columns: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+        gap: getComputedStyle(grid).gap,
+        positions: tiles.map((tile) => ({ x: tile.getBoundingClientRect().x, y: tile.getBoundingClientRect().y })),
+        buttons: [...grid.querySelectorAll(".target-stepper button")].map((button) => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })),
+        targetsFit: [...grid.querySelectorAll(".target-input")].every((input) => input.scrollWidth <= input.clientWidth),
+        pills: tiles.map((tile) => ({ parts: tile.querySelector(".target-stepper").children.length, width: tile.querySelector(".target-stepper").getBoundingClientRect().width, available: tile.clientWidth - 20 })),
+        overflow: [root.host, root.querySelector("main"), grid, ...tiles].some((node) => node.scrollWidth > node.clientWidth),
+        heating: tiles.every((tile) => tile.classList.contains("heating")),
+        border: getComputedStyle(tiles[0]).borderColor,
+      };
+    });
+    expect(geometry.columns).toBe(2);
+    expect(geometry.gap).toBe("8px");
+    expect(geometry.positions[0].y).toBe(geometry.positions[1].y);
+    expect(geometry.positions[0].x).not.toBe(geometry.positions[1].x);
+    expect(geometry.overflow).toBe(false);
+    expect(geometry.targetsFit).toBe(true);
+    expect(geometry.heating).toBe(true);
+    for (const button of geometry.buttons) { expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44); }
+    for (const pill of geometry.pills) { expect(pill.parts).toBe(3); expect(Math.abs(pill.width - pill.available)).toBeLessThan(1); }
+    if (width === 390) await page.screenshot({ path: "dist/thermo-control-stepper-mobile.png", fullPage: true });
+  });
+}
 
 test("FBH room options and global Luxtronik settings are editable and validated", async ({ page }) => {
   await mount(page, true);
