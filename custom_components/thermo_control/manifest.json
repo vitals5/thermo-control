@@ -1,12 +1,22 @@
 {
   "domain": "thermo_control",
   "name": "Thermo Control",
-  "codeowners": ["@vitals5"],
-  "dependencies": ["climate", "frontend", "http", "number", "panel_custom", "websocket_api"],
+  "codeowners": [
+    "@vitals5"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "climate",
+    "frontend",
+    "http",
+    "number",
+    "panel_custom",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/vitals5/thermo-control",
   "integration_type": "helper",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/vitals5/thermo-control/issues",
   "requirements": [],
-  "version": "1.1.0"
+  "version": "1.1.1"
 }

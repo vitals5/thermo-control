@@ -9,7 +9,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN
-from .manager import SIGNAL_ROOMS, RoomManager
+from .manager import SIGNAL_ROOMS
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/rooms"})
@@ -27,11 +27,9 @@ def ws_rooms(
 def ws_subscribe(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
 ) -> None:
-    manager: RoomManager = hass.data[DOMAIN]
-
     @callback
     def updated() -> None:
-        connection.send_event(msg["id"], manager.snapshot())
+        connection.send_event(msg["id"], hass.data[DOMAIN].snapshot())
 
     connection.subscriptions[msg["id"]] = async_dispatcher_connect(hass, SIGNAL_ROOMS, updated)
     connection.send_result(msg["id"])

@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 
 from .configuration import validate_room
-from .const import DEFAULTS, DEVICE_DEFAULTS, DOMAIN
+from .const import CONF_TRVS, DEFAULTS, DEVICE_DEFAULTS, DOMAIN
 
 if TYPE_CHECKING:
     from .climate import ThermoControlClimate
@@ -43,6 +43,7 @@ class RoomManager:
         self.rooms: dict[str, dict[str, Any]] = {}
         self.entities: dict[str, ThermoControlClimate] = {}
         self.revision = 0
+        self.config_entry_id: str | None = None
         self._store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.rooms")
         self._lock = asyncio.Lock()
         self._add_entities: AddEntitiesCallback | None = None
@@ -73,7 +74,7 @@ class RoomManager:
         candidate = dict(self.rooms)
         imported = set(self._migrated_entries)
         for entry in entries:
-            if entry.entry_id in imported:
+            if CONF_TRVS not in entry.data or entry.entry_id in imported:
                 continue
             if entry.entry_id not in candidate:
                 config = {**entry.data, **entry.options}
@@ -94,7 +95,7 @@ class RoomManager:
             self.revision += 1
 
     async def async_bind_platform(self, add_entities: AddEntitiesCallback) -> None:
-        """The YAML climate platform owns the dynamic virtual entities."""
+        """The integration climate platform owns the dynamic virtual entities."""
         from .climate import ThermoControlClimate
         from .coordinator import ThermoControlCoordinator
 

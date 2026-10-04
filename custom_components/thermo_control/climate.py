@@ -8,6 +8,7 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
@@ -15,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_SENSOR, CONF_TRVS, DOMAIN, PRESETS
+from .const import CONF_SENSOR, CONF_TRVS, PRESETS
 from .coordinator import ThermoControlCoordinator
 from .helpers import celsius, finite
 
@@ -23,13 +24,12 @@ if TYPE_CHECKING:
     from .manager import RoomManager
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: dict[str, Any],
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: dict[str, Any] | None = None,
 ) -> None:
-    await hass.data[DOMAIN].async_bind_platform(async_add_entities)
+    await entry.runtime_data.async_bind_platform(async_add_entities)
 
 
 class ThermoControlClimate(

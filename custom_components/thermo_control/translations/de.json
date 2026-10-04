@@ -1,3 +1,15 @@
 {
-  "title": "Thermo Control"
+  "title": "Thermo Control",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Thermo Control",
+        "description": "Thermo Control hinzufügen. Räume und Geräte werden anschließend im Panel „Thermo Control“ in der linken Seitenleiste eingerichtet."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Thermo Control ist bereits eingerichtet.",
+      "already_in_progress": "Das Hinzufügen von Thermo Control läuft bereits."
+    }
+  }
 }

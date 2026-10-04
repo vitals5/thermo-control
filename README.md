@@ -1,30 +1,27 @@
 # Thermo Control
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit einem externen Temperatursensor und einem oder mehreren Heizkörperthermostaten. Domain: `thermo_control`, Version: `1.1.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit einem externen Temperatursensor und einem oder mehreren Heizkörperthermostaten. Domain: `thermo_control`, Version: `1.1.1`.
 
 ## Installation und Seitenleisten-Panel
 
 Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte TRV-Climate-Entitäten und ein externer Raumtemperatursensor. Für MQTT-Kalibrierung muss die MQTT-Integration bereits eingerichtet sein.
 
-1. Bei einem Update den bisherigen Integrationsordner vollständig durch die neue Version ersetzen, damit entfernte Flow-Dateien nicht zurückbleiben. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
-2. Nur diesen leeren Start-Eintrag in der `configuration.yaml` ergänzen:
-
-   ```yaml
-   thermo_control:
-   ```
-
-3. Home Assistant neu starten. In der linken Seitenleiste erscheint **Thermo Control** (`/thermo_control`). Das Panel ist für HA-Administratoren sichtbar.
-4. Im Panel **Raum hinzufügen** wählen. Raumname, Thermostate und Raumtemperatursensor auswählen; Fensterkontakte sind optional.
-5. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
+1. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
+2. Home Assistant neu starten.
+3. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** nach **Thermo Control** suchen und den leeren Bestätigungsdialog abschließen. Es werden keine Einstellungen abgefragt.
+4. In der linken Seitenleiste **Thermo Control** (`/thermo_control`) öffnen. Das Panel ist für HA-Administratoren sichtbar.
+5. Im Panel **Raum hinzufügen** wählen. Raumname, Thermostate und Raumtemperatursensor auswählen; Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
 6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten ausgeschaltet; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
 
-**Es gibt keinen Config Flow und keinen Options Flow.** Der leere YAML-Eintrag lädt lediglich die Integration. Home Assistant lädt eine neue benutzerdefinierte Integration nicht allein durch das Kopieren ihrer Dateien. Keine Raumparameter und keine `panel_custom`-Konfiguration gehören in YAML.
+**Der Config Flow legt ausschließlich die Integration an.** Es gibt keine Einstellungsfelder und keinen Options Flow. Alle Raum- und Geräteparameter werden ausschließlich im Seitenleisten-Panel verwaltet. YAML und eine eigene `panel_custom`-Konfiguration sind nicht erforderlich. Ein bereits vorhandener leerer `thermo_control:`-Eintrag aus Version 1.1 wird aus Kompatibilitätsgründen importiert und kann danach aus YAML entfernt werden. Es wird nur eine Integration angelegt.
 
 Die Panel-Übersicht zeigt aktuelle Raumtemperatur, Sollwert, Heizstatus, Ventilöffnung und Fensterstatus. Heizung und Presets sind direkt steuerbar. **Konfigurieren** öffnet den Raumeditor; **Raum löschen** entfernt den Raum und seine virtuelle Climate-Entität nach Bestätigung. Physische Thermostate bleiben bestehen und behalten ihren letzten Hardwarezustand. Für ein Abschalten vor dem Entfernen im Panel zuerst **Aus** wählen.
 
+Beim Entladen der Integration werden Panel, Climate-Entitäten, Timer und Listener entfernt. Die Raumkonfigurationen bleiben für ein erneutes Laden erhalten.
+
 Alle Raumkonfigurationen werden in HA-Storage unter `.storage/thermo_control.rooms` gespeichert. Kalibrierungszeitstempel bleiben je Raum separat gespeichert. Stabile Raum-IDs erhalten die Climate-Entitätszuordnung beim Bearbeiten. Parallele Bearbeitungen werden mit einer Revisionsprüfung erkannt. Schreibfehler verändern eine bereits laufende Raumkonfiguration nicht.
 
-Vorhandene Config-Entry-Räume aus Version 1.0 werden einmalig mit ihren IDs und Einstellungen in den Panel-Speicher übernommen. Es wird dabei kein Flow aufgerufen. Alte Integrationseinträge dienen nur noch der Startkompatibilität und können nach Ergänzen des YAML-Start-Eintrags entfernt werden. Im Panel gelöschte Räume werden aus alten Einträgen nicht erneut importiert.
+Vorhandene Config-Entry-Räume aus Version 1.0 werden einmalig mit ihren IDs und Einstellungen in den Panel-Speicher übernommen. Es wird dabei kein Flow aufgerufen. Bei mehreren alten Einträgen lädt einer das gemeinsame Panel; mindestens ein Eintrag muss aktiviert bleiben. Im Panel gelöschte Räume werden aus alten Einträgen nicht erneut importiert.
 
 Leere optionale Zuordnungen entfernen eine explizite Auswahl; anschließend ist automatische Geräteerkennung wieder möglich. Ein leerer Kalibrierungspfad ohne passende Number-Entität deaktiviert die Offset-Schreibvorgänge. Der Raumeditor erlaubt auch die Bearbeitung vorübergehend nicht verfügbarer Sensoren mit bekannter Temperatureinheit.
 

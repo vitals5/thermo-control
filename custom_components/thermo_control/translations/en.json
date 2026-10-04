@@ -1,3 +1,15 @@
 {
-  "title": "Thermo Control"
+  "title": "Thermo Control",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Thermo Control",
+        "description": "Add Thermo Control. Configure rooms and devices afterwards in the Thermo Control panel in the left sidebar."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Thermo Control is already configured.",
+      "already_in_progress": "Thermo Control is already being added."
+    }
+  }
 }
