@@ -595,7 +595,7 @@ test("group configuration and selector matrix assign rooms", async ({ page }) =>
   await expect(page.locator('#room-form select[name=group_id]')).toHaveValue(group.id);
 });
 
-test("history charts use recorded room, target and flow data for all time ranges", async ({ page }) => {
+test("history selection loads recorded room and dual-axis flow without refresh controls", async ({ page }) => {
   await mount(page, true);
   await page.evaluate(() => {
     const settings = structuredClone(window.panel._data.settings);
@@ -604,7 +604,7 @@ test("history charts use recorded room, target and flow data for all time ranges
     const now = Date.now() / 1000;
     window.historyData = {
       "climate.living": [
-        { s: "heat", lu: now - 3600, a: { current_temperature_celsius: 20, effective_target_temperature: 21, hvac_action: "heating" } },
+        { s: "heat", lu: now - 3600, a: { current_temperature_celsius: 20, effective_target_temperature: 21, hvac_action: "heating", valve_position: 45 } },
         { s: "heat", lu: now - 1800, a: { current_temperature_celsius: 20.5, effective_target_temperature: 21, hvac_action: "idle" } },
         { s: "unavailable", lu: now - 900, a: {} },
         { s: "heat", lu: now - 600, a: { current_temperature_celsius: 20.6, effective_target_temperature: 21, hvac_action: "idle" } },
@@ -612,23 +612,30 @@ test("history charts use recorded room, target and flow data for all time ranges
     };
   });
   await page.getByRole("tab", { name: "Verläufe & Analyse", exact: true }).click();
-  await expect(page.locator("#graph-status")).toContainText("4 Raum-Meldungen");
+  await expect(page.locator("#history-chart path")).toHaveCount(2);
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-room-low", "19.5");
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-room-high", "21.5");
+  await page.getByRole("checkbox", { name: "Vorlauf", exact: true }).check();
   await expect(page.locator("#history-chart path")).toHaveCount(3);
-  await page.getByLabel("Vorlauftemperatur einblenden").check();
-  await expect(page.locator("#graph-status")).toContainText("1 Vorlauf-Meldungen");
-  await expect(page.locator('#history-chart rect[fill="#d18043"]')).toHaveCount(1);
-  await page.getByRole("combobox", { name: "Zeitfenster", exact: true }).selectOption("168");
-  const message = await page.evaluate(() => window.messages.filter((message) => message.type === "history/history_during_period").at(-1));
-  expect(message.entity_ids).toEqual(["climate.living", "sensor.flow"]);
-  expect((Date.parse(message.end_time) - Date.parse(message.start_time)) / 3600000).toBe(168);
-  expect(message.significant_changes_only).toBe(false);
-  await page.locator("#history-chart").hover();
-  await expect(page.locator("#graph-tooltip")).toContainText("°C");
-  await page.screenshot({ path: "dist/thermo-control-analytics.png", fullPage: true });
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-room-high", "21.5");
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-flow-low", "31.5");
+  await expect(page.locator("#history-chart .flow-axis")).toHaveCount(5);
+  await expect(page.locator("#history-chart .heating-band")).toHaveCount(1);
+  for (const hours of [6, 24, 48]) {
+    await page.getByRole("button", { name: `${hours}h`, exact: true }).click();
+    await expect(page.getByRole("button", { name: `${hours}h`, exact: true })).toHaveAttribute("aria-pressed", "true");
+    const message = await page.evaluate(() => window.messages.filter((message) => message.type === "history/history_during_period").at(-1));
+    expect(message.entity_ids).toEqual(["climate.living", "sensor.flow"]);
+    expect((Date.parse(message.end_time) - Date.parse(message.start_time)) / 3600000).toBe(hours);
+    expect(message.significant_changes_only).toBe(false);
+  }
+  await expect(page.getByRole("button", { name: "Aktualisieren", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Zeitfenster", exact: true })).toHaveCount(0);
   await page.evaluate(() => { window.failHistory = true; });
-  await page.getByRole("button", { name: "Aktualisieren", exact: true }).click();
+  await page.getByRole("button", { name: "6h", exact: true }).click();
   await expect(page.locator("#graph-status")).toContainText("Verlauf nicht verfügbar");
   await expect(page.locator("#history-chart path")).toHaveCount(0);
+  await expect(page.locator("#graph-tooltip")).toBeHidden();
 });
 
 test("settings conflict preserves draft and incoming telemetry preserves focused input", async ({ page }) => {
@@ -660,7 +667,7 @@ test("all tabs fit a mobile viewport without remote assets", async ({ page }) =>
   await page.screenshot({ path: "dist/thermo-control-overview-mobile.png", fullPage: true });
 });
 
-test("dense week histories retain peaks and bound chart geometry", async ({ page }) => {
+test("dense histories retain peaks and bound chart geometry", async ({ page }) => {
   await mount(page, true);
   await page.evaluate(() => {
     const now = Date.now() / 1000;
@@ -668,12 +675,12 @@ test("dense week histories retain peaks and bound chart geometry", async ({ page
     window.historyData = { "climate.living": states };
   });
   await page.getByRole("tab", { name: "Verläufe & Analyse", exact: true }).click();
-  await expect(page.locator("#graph-status")).toContainText("12000 Raum-Meldungen");
-  await expect(page.locator("#history-chart rect")).toHaveCount(1);
+  await expect(page.locator("#history-chart path")).toHaveCount(2);
+  await expect(page.locator("#history-chart .heating-band")).toHaveCount(0);
   const path = await page.locator('#history-chart path').first().getAttribute('d');
   expect(path.length).toBeLessThan(60000);
   const labels = await page.locator('#history-chart text').allTextContents();
-  expect(labels.some((text) => text.includes('30.0'))).toBe(true);
+  expect(labels.some((text) => text.includes('29.5'))).toBe(true);
 });
 
 test("native Auto shows the device target and requires a deliberate manual takeover", async ({ page }) => {
@@ -891,4 +898,148 @@ test("room calendar switches automation and shows timed overrides while steppers
   });
   await toggle.click();
   expect(await page.evaluate(() => window.services.at(-1).data.preset_mode)).toBe("schedule");
+});
+
+async function analyticsFixture(page) {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.heat_pump.flow_sensor = "sensor.flow";
+    window.updateSnapshot({ settings });
+    window.updateEntity("sensor.flow", { state: "34", attributes: { unit_of_measurement: "°C" } });
+    const end = Date.now() / 1000, start = end - 86400;
+    window.historyData = {
+      "climate.living": [
+        { s: "heat", lu: start, a: { current_temperature_celsius: 21, effective_target_temperature: 21, hvac_action: "idle", valve_position: 0 } },
+        { s: "heat", lu: start + 21600, a: { current_temperature_celsius: 21.1, effective_target_temperature: 21, hvac_action: "heating", valve_position: 45 } },
+        { s: "heat", lu: start + 32400, a: { current_temperature_celsius: 21.2, effective_target_temperature: 21, hvac_action: "idle", valve_position: 0 } },
+        { s: "unavailable", lu: start + 43200, a: {} },
+        { s: "heat", lu: start + 64800, a: { current_temperature_celsius: 21.1, effective_target_temperature: 21, hvac_action: "heating", valve_position: 30 } },
+      ],
+      "sensor.flow": [{ s: "29", lu: start, a: { unit_of_measurement: "°C" } }, { s: "35", lu: start + 43200, a: { unit_of_measurement: "°C" } }],
+    };
+  });
+  await page.getByRole("tab", { name: "Verläufe & Analyse", exact: true }).click();
+  await expect(page.locator("#history-chart .room-curve")).toHaveCount(2);
+}
+
+test("mobile analytics fills height with readable axes, compact header and touch tooltip", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await analyticsFixture(page);
+  await page.getByRole("checkbox", { name: "Vorlauf", exact: true }).check();
+  await expect(page.locator("#history-chart .flow-curve")).toHaveCount(1);
+  const dimensions = await page.evaluate(() => {
+    const root = window.panel.shadowRoot, svg = root.querySelector("#history-chart"), card = root.querySelector(".analytics");
+    return { chart: svg.getBoundingClientRect().toJSON(), card: card.getBoundingClientRect().toJSON(), headerHeight: root.querySelector(".chart-header").getBoundingClientRect().height, viewBox: svg.viewBox.baseVal.width, font: getComputedStyle(svg.querySelector("text")).fontSize };
+  });
+  expect(dimensions.chart.height).toBeGreaterThanOrEqual(320);
+  expect(dimensions.chart.width).toBeGreaterThan(dimensions.card.width - 16);
+  expect(dimensions.viewBox).toBeCloseTo(dimensions.chart.width, 1);
+  expect(dimensions.headerHeight).toBeLessThan(100);
+  const dots = await page.evaluate(() => [...window.panel.shadowRoot.querySelectorAll(".legend span")].map((node) => ({ content: getComputedStyle(node, "::before").content, width: getComputedStyle(node, "::before").width, color: getComputedStyle(node, "::before").backgroundColor })));
+  expect(dots.map((dot) => dot.color)).toEqual(["rgb(40, 119, 87)", "rgb(197, 106, 53)", "rgb(70, 126, 178)"]);
+  expect(dots.every((dot) => dot.content === '\"\"' && dot.width === "6px")).toBe(true);
+  expect(parseFloat(dimensions.font)).toBeGreaterThanOrEqual(12);
+  await expect(page.locator("#history-chart .time-axis")).toHaveCount(4);
+  const chart = page.locator("#history-chart");
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  const x = box.x + 44 + (box.width - 88) * 0.3, y = box.y + box.height * 0.7;
+  await chart.dispatchEvent("pointerdown", { clientX: x, clientY: y, pointerType: "touch", pointerId: 1 });
+  await expect(page.locator("#graph-tooltip")).toContainText("Ist: 21.1 °C");
+  await expect(page.locator("#graph-tooltip")).toContainText("Heizen (Ventil 45%)");
+  await expect(page.locator("#history-chart .chart-cursor")).toHaveAttribute("visibility", "visible");
+  const tip = await page.locator("#graph-tooltip").boundingBox();
+  expect(tip.y + tip.height).toBeLessThan(y);
+  expect(tip.x).toBeGreaterThanOrEqual(box.x);
+  expect(tip.x + tip.width).toBeLessThanOrEqual(box.x + box.width);
+  await page.locator(".analytics").screenshot({ path: "dist/thermo-control-analytics-mobile.png" });
+  await chart.focus(); await page.keyboard.press("Escape");
+  await expect(page.locator("#graph-tooltip")).toBeHidden();
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expect.poll(async () => Number((await chart.getAttribute("viewBox")).split(" ")[2])).toBeCloseTo((await chart.boundingBox()).width, 0);
+  const overflow = await page.evaluate(() => window.panel.shadowRoot.querySelector("main").scrollWidth > window.panel.shadowRoot.querySelector("main").clientWidth);
+  expect(overflow).toBe(false);
+});
+
+test("room scale preserves small drift when flow is shown and heating bands occupy the background", async ({ page }) => {
+  await analyticsFixture(page);
+  const chart = page.locator("#history-chart");
+  await expect(chart).toHaveAttribute("data-room-low", "20.5");
+  await expect(chart).toHaveAttribute("data-room-high", "21.7");
+  const before = await page.locator("#history-chart .room-curve").first().getAttribute("d");
+  await page.getByRole("checkbox", { name: "Vorlauf", exact: true }).check();
+  await expect(chart).toHaveAttribute("data-room-low", "20.5");
+  await expect(chart).toHaveAttribute("data-room-high", "21.7");
+  await expect(chart).toHaveAttribute("data-flow-low", "28.5");
+  await expect(chart).toHaveAttribute("data-flow-high", "35.5");
+  const after = await page.locator("#history-chart .room-curve").first().getAttribute("d");
+  const yValues = (path) => [...path.matchAll(/[,V]([0-9.]+)/g)].map((match) => Number(match[1]));
+  expect(yValues(after)).toEqual(yValues(before));
+  const geometry = await page.evaluate(() => {
+    const svg = window.panel.shadowRoot.querySelector("#history-chart"), bands = [...svg.querySelectorAll(".heating-band")];
+    return { heights: bands.map((band) => Number(band.getAttribute("height"))), widths: bands.map((band) => Number(band.getAttribute("width"))), fills: bands.map((band) => band.getAttribute("fill")), children: [...svg.children].map((element) => element.tagName) };
+  });
+  expect(geometry.heights).toHaveLength(2);
+  expect(geometry.heights.every((height) => height > 260)).toBe(true);
+  expect(geometry.fills.every((fill) => fill === "rgba(255, 152, 0, 0.15)")).toBe(true);
+  expect(geometry.widths[1] / geometry.widths[0]).toBeCloseTo(2, 2);
+  expect(geometry.children.indexOf("rect")).toBeLessThan(geometry.children.indexOf("path"));
+  expect((after.match(/ M/g) || []).length).toBe(2);
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  await chart.dispatchEvent("pointermove", { clientX: box.x + 44 + (box.width - 88) * 0.6, clientY: box.y + 100, pointerType: "mouse" });
+  await expect(page.locator("#graph-tooltip")).toContainText("Ist: —");
+  await expect(page.locator("#graph-tooltip")).toContainText("Status: Unbekannt");
+});
+
+test("legend shows live Celsius values, missing flow and empty history have compact feedback", async ({ page }) => {
+  await analyticsFixture(page);
+  await expect(page.locator("#graph-current")).toHaveText("20.3°");
+  await expect(page.locator("#graph-target")).toHaveText("21.0°");
+  await expect(page.locator("#graph-flow-legend")).toBeHidden();
+  await page.evaluate(() => window.updateTemperature(24.6));
+  await expect(page.locator("#graph-current")).toHaveText("24.6°");
+  await page.getByRole("checkbox", { name: "Vorlauf", exact: true }).check();
+  await expect(page.locator("#graph-flow-value")).toHaveText("34.0°");
+  await page.evaluate(() => {
+    window.historyData = {};
+    window.updateEntity("climate.living", { state: "heat", attributes: { current_temperature: 68, temperature: 69.8 } });
+    window.panel.hass.config.unit_system.temperature = "°F";
+    window.panel._updateGraphLegend();
+  });
+  await expect(page.locator("#graph-current")).toHaveText("20.0°");
+  await expect(page.locator("#graph-target")).toHaveText("21.0°");
+  await page.getByRole("button", { name: "6h", exact: true }).click();
+  await expect(page.locator("#graph-status")).toContainText("Keine aufgezeichneten Messwerte");
+  await expect(page.locator("#history-chart path")).toHaveCount(0);
+  await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings); settings.heat_pump.flow_sensor = null;
+    window.updateSnapshot({ settings });
+    window.historyData = { "climate.living": [{ s: "heat", lu: Date.now() / 1000 - 60, a: { current_temperature_celsius: 21, effective_target_temperature: 21 } }] };
+  });
+  await page.getByRole("button", { name: "24h", exact: true }).click();
+  await expect(page.locator("#graph-status")).toHaveText("Kein Vorlaufsensor zugeordnet.");
+  await expect(page.getByText("Orange Flächen zeigen gemeldete Heizphasen.", { exact: false })).toBeHidden();
+  await page.getByLabel("Informationen zum Diagramm").click();
+  await expect(page.getByText("Orange Flächen zeigen gemeldete Heizphasen.", { exact: false })).toBeVisible();
+});
+
+test("late history responses cannot replace a newer time range or restore a disconnected chart", async ({ page }) => {
+  await analyticsFixture(page);
+  await page.evaluate(() => {
+    const old = window.panel.hass.callWS;
+    window.resolveHistory = [];
+    window.panel.hass.callWS = (message) => message.type === "history/history_during_period" ? new Promise((resolve) => window.resolveHistory.push(resolve)) : old(message);
+  });
+  await page.getByRole("button", { name: "6h", exact: true }).click();
+  await page.getByRole("button", { name: "48h", exact: true }).click();
+  await page.evaluate(() => window.resolveHistory[1]({ "climate.living": [{ s: "heat", lu: Date.now() / 1000 - 60, a: { current_temperature_celsius: 22, effective_target_temperature: 22 } }] }));
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-room-high", "22.5");
+  await page.evaluate(() => window.resolveHistory[0]({ "climate.living": [{ s: "heat", lu: Date.now() / 1000 - 60, a: { current_temperature_celsius: 29, effective_target_temperature: 29 } }] }));
+  await expect(page.locator("#history-chart")).toHaveAttribute("data-room-high", "22.5");
+  await page.getByRole("button", { name: "6h", exact: true }).click();
+  await page.evaluate(() => { window.panel.remove(); window.resolveHistory[2](window.historyData); });
+  const children = await page.evaluate(() => window.panel.shadowRoot.querySelector("#history-chart").children.length);
+  expect(children).toBe(0);
 });

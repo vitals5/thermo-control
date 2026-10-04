@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.1`.
 
-Neu in **2.1.0**: Wochenzeitpläne pro Raum und Gruppe, visueller Editor im Tab **Zeitpläne**, temporäre manuelle Overrides und vorausschauendes FBH-Vorheizen. **Auto · Zeitplan** steuert Thermo Control in `heat`; **Auto · Gerätezeitplan** bleibt der separate Betriebsmodus des Thermostats.
+Neu in **2.1.1**: Kompakte mobile Analyseansicht mit Raum-Pill und 6h-/24h-/48h-Segmenten, aktuellen Werten in der Legende und einem mindestens 320 px hohen Graphen. Die Raumskala zoomt auf Ist/Soll ±0,5 °C; Vorlauf erhält eine eigene rechte Achse. Heizphasen erscheinen als orange Hintergrundbänder. Ein Touch-Tooltip zeigt Zeit, Ist/Soll, Heizstatus und die gemeldete Ventilöffnung. Daten werden bei Auswahl und minütlich geladen; Hintergrundinformationen stehen hinter dem Fragezeichen.
+
+Seit **2.1.0**: Wochenzeitpläne pro Raum und Gruppe, visueller Editor im Tab **Zeitpläne**, temporäre manuelle Overrides und vorausschauendes FBH-Vorheizen. **Auto · Zeitplan** steuert Thermo Control in `heat`; **Auto · Gerätezeitplan** bleibt der separate Betriebsmodus des Thermostats.
 
 Seit **2.0.4**: Gruppen verwenden wie einzelne Räume eine gemeinsame Heizmodus- und Preset-Auswahl. Die Master-Sollwertverschiebung hat ausschließlich einen Regler; Schnellwahlbuttons entfallen.
 
@@ -23,7 +25,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.1` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
