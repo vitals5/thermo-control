@@ -1210,3 +1210,55 @@ test("direct dashboard links fall back to the HA start view rather than an auth 
   expect(await page.evaluate(() => history.state)).toEqual({ root: true, customState: "keep" });
   await expect(page.locator(".back")).toBeHidden();
 });
+
+test("setpoint phases have no vertical connectors and zero-duration spikes do not widen the axis", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mount(page, true);
+  const timing = await page.evaluate(() => {
+    const end = Date.now(), start = end - 24 * 3600000;
+    const state = (seconds, target, hvac = "heat") => ({ s: hvac, lu: (start + seconds * 1000) / 1000, a: { current_temperature_celsius: 24, effective_target_temperature: target, hvac_action: "idle" } });
+    window.historyData = { "climate.living": [state(0, 21), state(3600, 26), state(3600, 5), state(3600, 21), state(10800, 18), state(14400, 18, "unavailable"), state(18000, 18), state(72000, 21.5)] };
+    return { start, end };
+  });
+  await page.getByRole("tab", { name: "Verläufe & Analyse", exact: true }).click();
+  const chart = page.locator("#history-chart"), curve = chart.locator(".target-curve");
+  await expect(curve).toHaveCount(1);
+  await expect(chart).toHaveAttribute("data-room-low", "17.5");
+  await expect(chart).toHaveAttribute("data-room-high", "24.5");
+  const path = await curve.getAttribute("d");
+  expect(path).not.toMatch(/[VL]/);
+  expect((path.match(/ M/g) || []).length).toBe(4); // 21, 18, explicit gap, 18, 21.5.
+  const phases = [...path.matchAll(/M([0-9.]+),([0-9.]+) H([0-9.]+)/g)].map((match) => ({ start: Number(match[1]), y: Number(match[2]), end: Number(match[3]) }));
+  expect(phases.every((phase) => phase.end > phase.start)).toBe(true);
+  expect(phases[1].end).toBeLessThan(phases[2].start);
+  const cursor = chart.locator(".chart-cursor");
+  await expect(cursor).toHaveAttribute("visibility", "hidden");
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  await chart.dispatchEvent("pointerdown", { clientX: box.x + phases[3].start + 5, clientY: box.y + 150, pointerType: "touch" });
+  await expect(page.locator("#graph-tooltip")).toContainText("Soll: 21.5 °C");
+  await chart.focus(); await page.keyboard.press("Escape");
+  await page.locator(".analytics").screenshot({ path: "dist/thermo-control-setpoint-plateaus-mobile.png" });
+  expect(timing.end).toBeGreaterThan(timing.start);
+});
+
+test("real short and sustained frost setpoints remain visible and available in the tooltip", async ({ page }) => {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const end = Date.now() / 1000, start = end - 86400;
+    const state = (offset, target) => ({ s: "heat", lu: start + offset, a: { current_temperature_celsius: 24, effective_target_temperature: target, hvac_action: "idle" } });
+    window.historyData = { "climate.living": [state(0, 21), state(3600, 5), state(3601, 21), state(7200, 5), state(14400, 18)] };
+  });
+  await page.getByRole("tab", { name: "Verläufe & Analyse", exact: true }).click();
+  const chart = page.locator("#history-chart");
+  await expect(chart).toHaveAttribute("data-room-low", "4.5");
+  const path = await chart.locator(".target-curve").getAttribute("d");
+  expect(path).not.toMatch(/[VL]/);
+  expect((path.match(/ M/g) || []).length).toBe(5);
+  const plateaus = [...path.matchAll(/M([0-9.]+),([0-9.]+) H([0-9.]+)/g)].map((match) => ({ start: Number(match[1]), end: Number(match[3]) }));
+  expect(plateaus[1].end - plateaus[1].start).toBeLessThan(1);
+  expect(plateaus[3].end - plateaus[3].start).toBeGreaterThan(10);
+  await chart.scrollIntoViewIfNeeded(); const box = await chart.boundingBox();
+  await chart.dispatchEvent("pointerdown", { clientX: box.x + (plateaus[3].start + plateaus[3].end) / 2, clientY: box.y + 150, pointerType: "touch" });
+  await expect(page.locator("#graph-tooltip")).toContainText("Soll: 5.0 °C");
+});

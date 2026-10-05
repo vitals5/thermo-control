@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.3`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.4`.
 
-Neu in **2.1.3**: Das Thermo-Control-Icon öffnet die Seitenleiste. Dashboard-Links auf `/thermo-control?back=1` blenden daneben einen Zurück-Button ein; er führt zum vorherigen HA-Bildschirm oder bei direkt geöffneten Links zur HA-Startansicht. Die Karte **Heizung** steht ausschließlich in der Übersicht. Der Button **Raum hinzufügen** steht im Tab **Thermostate & Gruppen**.
+Neu in **2.1.4**: Die orange Sollwertkurve zeichnet getrennte waagerechte Abschnitte ohne senkrechte Verbindungsstriche. Zwischenwerte ohne Zeitdauer erzeugen weder Ausschläge noch eine unnötig große Temperaturskala. Echte kurze und lange Sollwertphasen bleiben erhalten; Tooltip und Recorder-Daten bleiben unverändert.
+
+Seit **2.1.3**: Das Thermo-Control-Icon öffnet die Seitenleiste. Dashboard-Links auf `/thermo-control?back=1` blenden daneben einen Zurück-Button ein; er führt zum vorherigen HA-Bildschirm oder bei direkt geöffneten Links zur HA-Startansicht. Die Karte **Heizung** steht ausschließlich in der Übersicht. Der Button **Raum hinzufügen** steht im Tab **Thermostate & Gruppen**.
 
 Seit **2.1.2**: Gruppen-Karten im Übersicht-Tab sind 84 px hoch. Die Kopfzeile zeigt Gruppenname, Raumanzahl, orange Heizflamme und mittlere Ist-Temperatur. Modus, Preset und Sollwert-Stepper liegen darunter in einer einzigen 38-px-Aktionszeile. Sichtbare Feldbeschriftungen entfallen; zugängliche Namen, manuelle Sollwerteingabe und 400-ms-Debouncing bleiben erhalten.
 
@@ -29,7 +31,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.4` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
