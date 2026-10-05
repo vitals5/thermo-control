@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.2`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.3`.
 
-Neu in **2.1.2**: Gruppen-Karten im Übersicht-Tab sind 84 px hoch. Die Kopfzeile zeigt Gruppenname, Raumanzahl, orange Heizflamme und mittlere Ist-Temperatur. Modus, Preset und Sollwert-Stepper liegen darunter in einer einzigen 38-px-Aktionszeile. Sichtbare Feldbeschriftungen entfallen; zugängliche Namen, manuelle Sollwerteingabe und 400-ms-Debouncing bleiben erhalten.
+Neu in **2.1.3**: Das Thermo-Control-Icon öffnet die Seitenleiste. Dashboard-Links auf `/thermo-control?back=1` blenden daneben einen Zurück-Button ein; er führt zum vorherigen HA-Bildschirm oder bei direkt geöffneten Links zur HA-Startansicht. Die Karte **Heizung** steht ausschließlich in der Übersicht. Der Button **Raum hinzufügen** steht im Tab **Thermostate & Gruppen**.
+
+Seit **2.1.2**: Gruppen-Karten im Übersicht-Tab sind 84 px hoch. Die Kopfzeile zeigt Gruppenname, Raumanzahl, orange Heizflamme und mittlere Ist-Temperatur. Modus, Preset und Sollwert-Stepper liegen darunter in einer einzigen 38-px-Aktionszeile. Sichtbare Feldbeschriftungen entfallen; zugängliche Namen, manuelle Sollwerteingabe und 400-ms-Debouncing bleiben erhalten.
 
 Seit **2.1.1**: Kompakte mobile Analyseansicht mit Raum-Pill und 6h-/24h-/48h-Segmenten, aktuellen Werten in der Legende und einem mindestens 320 px hohen Graphen. Die Raumskala zoomt auf Ist/Soll ±0,5 °C; Vorlauf erhält eine eigene rechte Achse. Heizphasen erscheinen als orange Hintergrundbänder. Ein Touch-Tooltip zeigt Zeit, Ist/Soll, Heizstatus und die gemeldete Ventilöffnung. Daten werden bei Auswahl und minütlich geladen; Hintergrundinformationen stehen hinter dem Fragezeichen.
 
@@ -27,7 +29,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.2` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -36,9 +38,20 @@ Voraussetzung: Home Assistant Core **2026.9 oder neuer**, registrierte Climate-E
 1. Den Ordner `custom_components/thermo_control` nach `/config/custom_components/thermo_control` kopieren. Alternativ dieses Repository in HACS als benutzerdefiniertes Repository vom Typ **Integration** hinzufügen und installieren.
 2. Home Assistant neu starten.
 3. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen** nach **Thermo Control** suchen und den leeren Bestätigungsdialog abschließen. Es werden keine Einstellungen abgefragt.
-4. In der linken Seitenleiste **Thermo Control** (`/thermo_control`) öffnen. Das Panel ist für HA-Administratoren sichtbar.
-5. Im Panel **Raum hinzufügen** wählen. Raumname und Thermostate auswählen; externer Raumtemperatursensor und Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
+4. In der linken Seitenleiste **Thermo Control** (`/thermo_control`) öffnen. Das Panel ist für HA-Administratoren sichtbar. Der zusätzliche Pfad `/thermo-control` öffnet dasselbe Panel ohne zweiten Seitenleisteneintrag.
+
+5. Im Tab **Thermostate & Gruppen** den Button **Raum hinzufügen** wählen. Raumname und Thermostate auswählen; externer Raumtemperatursensor und Fensterkontakte sind optional. Im gleichen Raumeditor die Verzögerungen, Preset-Sollwerte und Kalibrierungszuordnungen je Thermostat bearbeiten und speichern. Eine eindeutige Number- bzw. Positions-Entität am selben HA-Gerät kann automatisch erkannt werden. Deaktivierte Entitäten zuerst in HA aktivieren.
 6. Die neue virtuelle Climate-Entität im Panel einschalten. Neue Räume starten in Pause/Frostschutz; bestehende Räume stellen nach Neustarts ihren gewünschten Zustand wieder her.
+
+Ein Dashboard-Button kann das Panel mit Zurück-Pfeil öffnen:
+
+```yaml
+tap_action:
+  action: navigate
+  navigation_path: /thermo-control?back=1
+```
+
+Ohne `back=1` bleibt der Zurück-Pfeil verborgen. Das Brand-Icon links ist auf Desktop und Smartphone der Seitenleistenbutton. Der Rücksprung nutzt die HA-interne Historie; ein direkter Aufruf ohne vorherigen HA-Bildschirm führt zur Startansicht. Räume werden unter **Thermostate & Gruppen** hinzugefügt; die Ersteinrichtung bleibt zusätzlich im Leerzustand erreichbar.
 
 **Der Config Flow legt ausschließlich die Integration an.** Es gibt keine Einstellungsfelder und keinen Options Flow. Alle Raum- und Geräteparameter werden ausschließlich im Seitenleisten-Panel verwaltet. YAML und eine eigene `panel_custom`-Konfiguration sind nicht erforderlich. Ein bereits vorhandener leerer `thermo_control:`-Eintrag aus Version 1.1 wird aus Kompatibilitätsgründen importiert und kann danach aus YAML entfernt werden. Es wird nur eine Integration angelegt.
 

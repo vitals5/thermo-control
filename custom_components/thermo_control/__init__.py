@@ -11,7 +11,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .manager import RoomManager
-from .panel import async_register_panel
+from .panel import PANEL_PATHS, async_register_panel
 from .services import async_register_services
 from .websocket import async_register_commands
 
@@ -48,7 +48,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:
         await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
         await manager.async_shutdown()
-        async_remove_panel(hass, DOMAIN)
+        for path in PANEL_PATHS:
+            async_remove_panel(hass, path)
         raise
 
     async def stop(_: Event) -> None:
@@ -66,7 +67,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     await manager.async_shutdown()
-    async_remove_panel(hass, DOMAIN)
+    for path in PANEL_PATHS:
+        async_remove_panel(hass, path)
     # Old releases created one entry per room. If the hosting entry is removed,
     # let another loaded legacy entry host the shared panel and stored rooms.
     for other in hass.config_entries.async_entries(DOMAIN):

@@ -136,6 +136,7 @@ async def test_dst_has_ordered_switches_and_does_not_repeat_fall_transition(
     assert result["next_change"] == next_change
 
 
+@pytest.mark.freeze_time("2026-10-05T04:59:00+00:00")
 async def test_schedule_switch_override_and_manual_toggle(
     manager, room, hass, freezer, service_calls
 ):

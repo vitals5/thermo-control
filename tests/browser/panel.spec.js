@@ -115,7 +115,8 @@ test("display live values, control heating, edit and delete", async ({ page }) =
 
 test("errors preserve unsaved configuration", async ({ page }) => {
   await mount(page);
-  await page.getByRole("button", { name: "+ Raum hinzufügen" }).click();
+  await page.getByRole("tab", { name: "Thermostate & Gruppen", exact: true }).click();
+  await page.getByRole("button", { name: "Raum hinzufügen", exact: true }).click();
   await page.getByLabel("Raumname").fill("Mein Raum");
   await pick(page, "Thermostate", "climate.trv");
   await pick(page, "Externer Raumtemperatursensor (optional)", "sensor.room");
@@ -235,7 +236,8 @@ test("entity search is safe on mobile and excludes virtual and assigned climates
   await page.setViewportSize({ width: 390, height: 844 });
   await mount(page, true);
   await page.evaluate(() => window.updateEntity("climate.wall", { state: "heat", attributes: { friendly_name: '<img src=x onerror="window.injected=true">', current_temperature: 22.2, temperature_unit: "°C" } }));
-  await page.getByRole("button", { name: "+ Raum hinzufügen" }).click();
+  await page.getByRole("tab", { name: "Thermostate & Gruppen", exact: true }).click();
+  await page.getByRole("button", { name: "Raum hinzufügen", exact: true }).click();
   await page.getByLabel("Raumname").fill("Zweiter Raum");
   await page.getByRole("combobox", { name: "Thermostate", exact: true }).fill("climate.");
   await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(1);
@@ -1113,4 +1115,98 @@ test("compact group status updates averages and excludes unavailable room readin
   });
   await expect(card.locator(".group-current")).toHaveText("—");
   await expect(page.getByLabel("Erdgeschoss: Sollwert", { exact: true })).toBeDisabled();
+});
+
+async function homeAssistantRoute(page, path) {
+  await page.route("http://thermo.test/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body></body></html>" }));
+  await page.goto(`http://thermo.test${path}`);
+}
+
+test("overview alone contains heating values and room creation remains in configuration", async ({ page }) => {
+  await mount(page, true);
+  await expect(page.locator("#tab-overview #add-room")).toHaveCount(0);
+  await expect(page.locator("#tab-overview").getByRole("button", { name: "Raum hinzufügen", exact: true })).toHaveCount(0);
+  const heating = page.getByRole("region", { name: "Heizungswerte", exact: true });
+  await expect(heating.getByRole("heading", { name: "Heizung", exact: true })).toBeVisible();
+  await expect(page.locator("#tab-overview #system-bar")).toHaveCount(1);
+  for (const tab of ["Verläufe & Analyse", "Zeitpläne", "Thermostate & Gruppen", "Einstellungen"]) {
+    await page.getByRole("tab", { name: tab, exact: true }).click();
+    await expect(heating).toBeHidden();
+  }
+  await page.evaluate(() => window.updateSnapshot({ system: { flow: 31, target: 33, demand: 40, eligible_demand: 40, compressor: true, mode: "Automatik" } }));
+  await page.getByRole("tab", { name: "Übersicht", exact: true }).click();
+  await expect(heating).toContainText("31 °C / 33 °C");
+  await expect(heating).toContainText("Aktiv");
+  await expect(heating.getByRole("heading", { name: "Heizung", exact: true })).toHaveCount(1);
+  await page.getByRole("tab", { name: "Thermostate & Gruppen", exact: true }).click();
+  await page.getByRole("button", { name: "Raum hinzufügen", exact: true }).click();
+  await expect(page.locator("#editor")).toBeVisible();
+});
+
+for (const width of [320, 1280]) {
+  test(`brand menu button and dashboard back fit the toolbar at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await homeAssistantRoute(page, "/lovelace/wohnzimmer?view=house");
+    await page.evaluate(() => {
+      history.replaceState({ root: true }, "");
+      history.pushState({ from: "/lovelace/wohnzimmer?view=house" }, "", "/thermo-control?back=1");
+    });
+    await mount(page, true);
+    await page.evaluate(() => {
+      window.menuEvents = 0;
+      document.addEventListener("hass-toggle-menu", (event) => { if (event.bubbles && event.composed) window.menuEvents++; });
+    });
+    const brand = page.getByRole("button", { name: "Seitenleiste öffnen", exact: true });
+    const back = page.getByRole("button", { name: "Zurück zum Dashboard", exact: true });
+    await expect(brand.locator("svg")).toHaveCount(1);
+    await expect(back).toBeVisible();
+    await expect(page.locator(".menu")).toHaveCount(0);
+    await expect(page.locator(".toolbar")).not.toContainText("☰");
+    await brand.click(); await brand.focus(); await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => window.menuEvents)).toBe(2);
+    const geometry = await page.evaluate(() => {
+      const root = window.panel.shadowRoot, toolbar = root.querySelector(".toolbar");
+      return { overflow: toolbar.scrollWidth > toolbar.clientWidth, controls: [...toolbar.querySelectorAll("button")].map((node) => node.getBoundingClientRect().toJSON()) };
+    });
+    expect(geometry.overflow).toBe(false);
+    expect(geometry.controls.every((control) => control.width >= 44 && control.height >= 44 && control.right <= width)).toBe(true);
+    if (width === 320) await page.locator("thermo-control-panel").screenshot({ path: "dist/thermo-control-navigation-mobile.png" });
+    await back.click();
+    await expect(page).toHaveURL("http://thermo.test/lovelace/wohnzimmer?view=house");
+    await expect(back).toBeHidden();
+  });
+}
+
+test("back marker responds to SPA navigation and listeners are removed on disconnect", async ({ page }) => {
+  await homeAssistantRoute(page, "/thermo_control");
+  await mount(page, true);
+  const back = page.locator(".back");
+  await expect(back).toBeHidden();
+  for (const flag of ["0", "2", "true"]) {
+    await page.evaluate((flag) => { history.replaceState({}, "", `?back=${flag}`); window.dispatchEvent(new CustomEvent("location-changed")); }, flag);
+    await expect(back).toBeHidden();
+  }
+  await page.evaluate(() => { history.replaceState({}, "", "?back=1"); window.dispatchEvent(new CustomEvent("location-changed")); });
+  await expect(back).toBeVisible();
+  await page.evaluate(() => { history.replaceState({}, "", "/thermo_control"); window.panel.route = { path: "" }; });
+  await expect(back).toBeHidden();
+  const calls = await page.evaluate(() => {
+    window.panel.remove(); let count = 0; window.panel._updateNavigation = () => count++;
+    window.dispatchEvent(new CustomEvent("location-changed")); window.dispatchEvent(new PopStateEvent("popstate")); return count;
+  });
+  expect(calls).toBe(0);
+});
+
+test("direct dashboard links fall back to the HA start view rather than an auth history entry", async ({ page }) => {
+  await homeAssistantRoute(page, "/auth/authorize");
+  await page.evaluate(() => {
+    history.pushState({ root: true, customState: "keep" }, "", "/thermo-control?back=1");
+  });
+  await mount(page, true);
+  await page.evaluate(() => { window.navigationEvents = []; window.addEventListener("location-changed", (event) => window.navigationEvents.push(event.detail)); });
+  await page.getByRole("button", { name: "Zurück zum Dashboard", exact: true }).click();
+  await expect(page).toHaveURL("http://thermo.test/");
+  expect(await page.evaluate(() => window.navigationEvents)).toEqual([{ replace: true }]);
+  expect(await page.evaluate(() => history.state)).toEqual({ root: true, customState: "keep" });
+  await expect(page.locator(".back")).toBeHidden();
 });
