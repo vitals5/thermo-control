@@ -1,4 +1,4 @@
-# Thermo Control 2.1.4 – Regelung und Panel
+# Thermo Control 2.1.5 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -8,6 +8,7 @@
 - Externer Temperatursensor optional. Ohne ihn wird das Mittel gültiger Thermostatmessungen verwendet; automatische Offset-Kalibrierung ist deaktiviert.
 - Alle absoluten Regeltemperaturen und Master-Differenzen werden intern in Celsius geführt. Climate-Darstellung und Serviceaufrufe berücksichtigen die HA-/Geräteeinheiten.
 - Steuerung, Speicher und Services sind asynchron. Zustandslistener verwenden ausschließlich `async_track_state_change_event`. Eine minütliche Abgleichroutine bedient PWM, Wiederholungen und Trendaufnahme; Listener und laufende Aufgaben werden beim Entladen entfernt.
+- Raumabsicht (`desired_hvac_mode`, `preset_mode`, Celsius-Sollwert und manueller Rückkehrwert) wird über `extra_restore_state_data` unabhängig von den sichtbaren Climate-Attributen gespeichert. HA entfernt diese Attribute bei `unavailable`; zusätzliche Wiederherstellungsdaten bleiben für Neustart und Neuladen erhalten und werden vor den ersten Gerätebefehlen gelesen. Alte verfügbare Zustände bleiben als Fallback kompatibel. Bewusst ausgeschaltete Räume bleiben ausgeschaltet. Zeitplan-Overrides und Aktivierungsflags bleiben im separaten Zeitplanspeicher.
 
 ## Vorausschauende FBH-Regelung
 

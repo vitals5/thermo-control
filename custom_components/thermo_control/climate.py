@@ -13,7 +13,7 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoredExtraData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_SENSOR, CONF_TRVS, PRESETS
@@ -64,27 +64,47 @@ class ThermoControlClimate(
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if self._restore and (state := await self.async_get_last_state()):
-            mode = state.attributes.get("desired_hvac_mode", state.state)
+        attributes = {}
+        if self._restore:
+            if state := await self.async_get_last_state():
+                attributes = {"desired_hvac_mode": state.state, **state.attributes}
+            # HA strips climate attributes when an entity is unavailable. Extra
+            # restore data remains independent of availability and display units.
+            if extra := await self.async_get_last_extra_data():
+                attributes.update(extra.as_dict())
+        if attributes:
+            mode = attributes.get("desired_hvac_mode")
             if mode in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO):
                 self.coordinator.mode = HVACMode(mode)
             low, high = self.coordinator.base_temperature_limits()
-            target = finite(state.attributes.get("target_temperature_celsius"))
+            target = finite(attributes.get("target_temperature_celsius"))
             if target is None:
                 target = celsius(
-                    state.attributes.get(ATTR_TEMPERATURE), self.hass.config.units.temperature_unit
+                    attributes.get(ATTR_TEMPERATURE), self.hass.config.units.temperature_unit
                 )
             if target is not None and low <= target <= high:
                 self.coordinator.target = target
             if (
-                manual := finite(state.attributes.get("manual_temperature"))
+                manual := finite(attributes.get("manual_temperature"))
             ) is not None and low <= manual <= high:
                 self.coordinator.manual_target = manual
-            if state.attributes.get("preset_mode") in PRESETS:
-                self.coordinator.preset = state.attributes["preset_mode"]
+            if attributes.get("preset_mode") in self.preset_modes:
+                self.coordinator.preset = attributes["preset_mode"]
         await self.coordinator.async_start()
         if self._manager is not None:
             self._manager.notify()
+
+    @property
+    def extra_restore_state_data(self) -> ExtraStoredData:
+        """Preserve room intent even when sensors or thermostats are offline."""
+        return RestoredExtraData(
+            {
+                "desired_hvac_mode": self.coordinator.mode,
+                "target_temperature_celsius": self.coordinator.target,
+                "manual_temperature": self.coordinator.manual_target,
+                "preset_mode": self.coordinator.preset,
+            }
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         await self.coordinator.async_shutdown()

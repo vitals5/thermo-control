@@ -24,7 +24,7 @@ async def async_register_panel(hass: HomeAssistant, assets: Path) -> None:
             webcomponent_name="thermo-control-panel",
             sidebar_title=NAME if path == DOMAIN else None,
             sidebar_icon="mdi:home-thermometer-outline",
-            module_url="/thermo_control_static/thermo-control-panel.js?v=2.1.4",
+            module_url="/thermo_control_static/thermo-control-panel.js?v=2.1.5",
             require_admin=True,
             config_panel_domain=DOMAIN if path == DOMAIN else None,
         )
