@@ -33,6 +33,7 @@ from .const import (
     DEFAULTS,
     DEVICE_DEFAULTS,
     DOMAIN,
+    MAINTENANCE_DEFAULTS,
     PRESETS,
 )
 from .helpers import celsius, finite
@@ -45,6 +46,13 @@ def _range(low: float, high: float):
         return result
 
     return vol.All(number, vol.Range(min=low, max=high))
+
+
+def _maintenance_duration(value):
+    result = _range(60, 600)(value)
+    if not result.is_integer():
+        raise vol.Invalid("Ganze Sekunden erforderlich")
+    return int(result)
 
 
 DEVICE_SCHEMA = vol.Schema(
@@ -79,6 +87,7 @@ ROOM_SCHEMA = vol.Schema(
         vol.Optional("group_id", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
         vol.Optional("use_global_control", default=True): bool,
         vol.Optional("use_global_calibration", default=False): bool,
+        vol.Optional("valve_maintenance", default=True): bool,
         **{
             vol.Optional(key, default=CONTROL_DEFAULTS[key]): rule
             for key, rule in CONTROL_FIELDS.items()
@@ -120,6 +129,17 @@ def validate_settings(
             vol.Required("master_offset"): _range(-5, 5),
             vol.Required("calibration_interval"): _range(300, 86400),
             vol.Required("control"): validate_control,
+            vol.Optional(
+                "valve_maintenance", default=lambda: deepcopy(MAINTENANCE_DEFAULTS)
+            ): vol.Schema(
+                {
+                    vol.Required("enabled"): bool,
+                    vol.Required("time"): vol.All(
+                        str, vol.Match(r"^([01][0-9]|2[0-3]):[0-5][0-9]\Z")
+                    ),
+                    vol.Required("duration"): _maintenance_duration,
+                }
+            ),
             vol.Required("groups"): vol.All(
                 [
                     vol.Schema(

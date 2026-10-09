@@ -180,6 +180,9 @@ class ThermoControlClimate(
                     "pre_shutoff",
                     "pwm_active",
                     "duty_cycle",
+                    "valve_maintenance_phase",
+                    "valve_maintenance_last_date",
+                    "valve_maintenance_result",
                 )
             },
             "window_open": self.coordinator.window_blocked,

@@ -1,4 +1,4 @@
-# Thermo Control 2.1.5 – Regelung und Panel
+# Thermo Control 2.2.0 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -9,6 +9,16 @@
 - Alle absoluten Regeltemperaturen und Master-Differenzen werden intern in Celsius geführt. Climate-Darstellung und Serviceaufrufe berücksichtigen die HA-/Geräteeinheiten.
 - Steuerung, Speicher und Services sind asynchron. Zustandslistener verwenden ausschließlich `async_track_state_change_event`. Eine minütliche Abgleichroutine bedient PWM, Wiederholungen und Trendaufnahme; Listener und laufende Aufgaben werden beim Entladen entfernt.
 - Raumabsicht (`desired_hvac_mode`, `preset_mode`, Celsius-Sollwert und manueller Rückkehrwert) wird über `extra_restore_state_data` unabhängig von den sichtbaren Climate-Attributen gespeichert. HA entfernt diese Attribute bei `unavailable`; zusätzliche Wiederherstellungsdaten bleiben für Neustart und Neuladen erhalten und werden vor den ersten Gerätebefehlen gelesen. Alte verfügbare Zustände bleiben als Fallback kompatibel. Bewusst ausgeschaltete Räume bleiben ausgeschaltet. Zeitplan-Overrides und Aktivierungsflags bleiben im separaten Zeitplanspeicher.
+
+## Tägliche Ventilwartung
+
+- Globale Konfiguration `valve_maintenance`: `enabled` (Standard false), `time` (HH:MM, Standard 12:00 in der HA-Zeitzone), `duration` (ganze Sekunden 60–600, Standard 180 je Stellung). Raumkonfiguration `valve_maintenance` (Standard true) erlaubt die Teilnahme beziehungsweise den Ausschluss.
+- Einmal pro lokalem Kalendertag nach der eingestellten Zeit: minimaler Gerätesollwert zum Schließen, maximaler Gerätesollwert zum Öffnen, danach aktuelle normale Regelung. Geräte bleiben in `heat`, die Displayanzeige bleibt erhalten. Physische Temperatureinheiten, Sollwertgrenzen und Schrittweiten gelten weiterhin. Die tatsächliche Ventilbewegung hängt von der Geräte-Regelung und der Stellzeit ab; die Integration sendet Sollwerte, keine direkten Relaisbefehle.
+- Räume werden nacheinander bearbeitet. Der Zyklus funktioniert auch bei virtuellem `off` und ohne warmen Wärmepumpenvorlauf. Er verändert keine Raumabsicht, Presets, Zeitpläne oder Overrides und meldet keinen zusätzlichen Heizbedarf. Hardware-`hvac_action` wird weiterhin unverändert ausgewertet.
+- Geräte-Auto, offene beziehungsweise gesperrte Fenster, fehlende Raumtemperatur, nicht verfügbare Thermostate und fehlende Heat-Unterstützung verhindern den Start. Ein Raum mit gemischtem Geräte-Auto wird vollständig ausgelassen. Der tägliche Termin wird innerhalb desselben Tages nachgeholt, wenn die Voraussetzungen später erfüllt sind; frühere ausgefallene Tage werden nicht nachgeholt.
+- Phase und lokales Tagesdatum werden vor den Wartungsbefehlen gespeichert. Speicherfehler verhindern neue Phasenbefehle. Ein gestarteter, anschließend abgebrochener Zyklus startet am selben Tag nicht erneut. Sommerzeitwechsel führen nicht zu doppelten Läufen; eine übersprungene Uhrzeit wird nach dem Zeitsprung bedient. Die minütliche Regelung begrenzt die Zeitauflösung.
+- Fenster-/Sensorausfall, Geräte-Auto, Deaktivierung, manuelle Bedienung und Gerätefehler beenden den Zyklus und geben die Ausgabe an die normale Regelung zurück. Beim Entladen wird versucht, normale Gerätesollwerte wiederherzustellen. Nach Neustart wird eine unterbrochene Phase immer wiederhergestellt, niemals nochmals geöffnet; verzögerte Timer verlängern keinen alten Zyklus. Physisch nicht erreichbare Geräte erhalten normale Sollwerte erst nach ihrer Rückkehr.
+- Climate-Attribute: `valve_maintenance_phase` (`close`, `open`, `restore` oder null), `valve_maintenance_last_date`, `valve_maintenance_result` (`running`, `completed`, `interrupted`, `cancelled`, `failed`). Während des Zyklus zeigt die Raumkachel den Wartungsstatus.
 
 ## Vorausschauende FBH-Regelung
 

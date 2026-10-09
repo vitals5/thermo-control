@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.1.5`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.2.0`.
 
-Neu in **2.1.5**: Heizmodus, Preset, Sollwert und manueller Rückkehrwert werden unabhängig von der Verfügbarkeit des Raums in Home Assistants zusätzlichen Wiederherstellungsdaten gespeichert. Ein Sensor- oder Thermostatausfall vor Neustart/Neuladen setzt **Heizen / Auto · Zeitplan** dadurch nicht mehr auf **Aus / Manuell** zurück. Bereits verlorene Einstellungen müssen einmal neu gesetzt werden.
+Neu in **2.2.0**: Täglicher Ventil-Wartungszyklus für Wandthermostate/TRVs, auch bei virtuell ausgeschalteter Heizung. Unter **Einstellungen → Tägliche Ventilwartung** aktivieren (zunächst deaktiviert), Uhrzeit und Dauer wählen. Standard: 12:00 Uhr in der HA-Zeitzone, je 180 Sekunden am minimalen und maximalen Gerätesollwert, anschließend normale Regelung. Räume kommen nacheinander dran; im Raumeditor lassen sich einzelne Räume ausschließen. Für träge Stellantriebe muss die Dauer zur tatsächlichen Stellzeit passen. Sollwerte, Presets und Zeitpläne bleiben erhalten; Geräte-Auto wird ausgelassen, offene Fenster und Ausfälle unterbrechen den Zyklus. Die Wartung erzeugt keinen zusätzlichen Haus-Wärmebedarf.
+
+Seit **2.1.5**: Heizmodus, Preset, Sollwert und manueller Rückkehrwert werden unabhängig von der Verfügbarkeit des Raums in Home Assistants zusätzlichen Wiederherstellungsdaten gespeichert. Ein Sensor- oder Thermostatausfall vor Neustart/Neuladen setzt **Heizen / Auto · Zeitplan** dadurch nicht mehr auf **Aus / Manuell** zurück. Bereits verlorene Einstellungen müssen einmal neu gesetzt werden.
 
 Seit **2.1.4**: Die orange Sollwertkurve zeichnet getrennte waagerechte Abschnitte ohne senkrechte Verbindungsstriche. Zwischenwerte ohne Zeitdauer erzeugen weder Ausschläge noch eine unnötig große Temperaturskala. Echte kurze und lange Sollwertphasen bleiben erhalten; Tooltip und Recorder-Daten bleiben unverändert.
 
@@ -33,7 +35,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.1.5` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.2.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 

@@ -34,11 +34,13 @@ CONTROL_DEFAULTS = {
     "integral_hours": 6.0,
     "tolerance": 0.2,
 }
+MAINTENANCE_DEFAULTS = {"enabled": False, "time": "12:00", "duration": 180}
 SYSTEM_DEFAULTS = {
     "master_offset": 0.0,
     "control": CONTROL_DEFAULTS,
     "calibration_interval": 600,
     "groups": [],
+    "valve_maintenance": MAINTENANCE_DEFAULTS,
     "heat_pump": {
         "flow_sensor": None,
         "target_sensor": None,
@@ -56,6 +58,7 @@ DEFAULTS = {
     "group_id": None,
     "use_global_control": True,
     "use_global_calibration": False,
+    "valve_maintenance": True,
     **CONTROL_DEFAULTS,
     CONF_SENSOR: None,
     CONF_WINDOWS: [],

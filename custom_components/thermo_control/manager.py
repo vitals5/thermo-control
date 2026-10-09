@@ -177,6 +177,7 @@ class RoomManager:
                 coordinator.target = previous.coordinator.target
                 coordinator.manual_target = previous.coordinator.manual_target
                 coordinator.preset = previous.coordinator.preset
+                coordinator.maintenance.restore(previous.coordinator.maintenance.dump())
                 coordinator.window_blocked = previous.coordinator.window_blocked
                 coordinator._preheat_latch = deepcopy(previous.coordinator._preheat_latch)
                 coordinator._calibration = deepcopy(previous.coordinator._calibration)

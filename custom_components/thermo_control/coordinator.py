@@ -63,6 +63,7 @@ from .helpers import (
     quantize,
     state_temperature,
 )
+from .maintenance import ValveMaintenance
 from .manager import RoomConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,15 +119,18 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lock = asyncio.Lock()
         self._closed = False
         self._demand = False
+        self._normal_output = False
         self._attempts: dict[tuple[str, str], tuple[dict[str, Any], datetime]] = {}
         self._calibration: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
+        self.maintenance = ValveMaintenance(self)
         self._store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
 
     async def async_initialize(self) -> None:
         """Load write timestamps before any possible device writes."""
         stored = await self._store.async_load()
         if stored:
+            self.maintenance.restore(stored.get("valve_maintenance", {}))
             self._calibration = stored.get("calibration", {})
             self._preheat_latch = stored.get("schedule_preheat", {})
             self.window_blocked = bool(stored.get("window_blocked", False))
@@ -267,6 +271,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Keep desired mode and temperature even while the interlock is active."""
         async with self._lock:
+            await self.maintenance.async_cancel("cancelled")
             if mode is not None:
                 if not self.supports_mode(mode):
                     raise ServiceValidationError(
@@ -458,6 +463,9 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "pre_shutoff": self.controller.pre_shutoff,
                 "pwm_active": self.controller.active,
                 "duty_cycle": self.controller.cycle_duty * 100,
+                "valve_maintenance_phase": self.maintenance.phase,
+                "valve_maintenance_last_date": self.maintenance.state.get("last_date"),
+                "valve_maintenance_result": self.maintenance.state.get("last_result"),
             }
         )
         if (
@@ -565,6 +573,9 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise
         elif self.config["heating_type"] == "floor":
             self._store.async_delay_save(self._storage_data, 60)
+        self._normal_output = output and not self.window_blocked
+        maintenance = await self.maintenance.async_update()
+        exercising = maintenance is not None
         self._publish()
         for entity_id, device in self.devices.items():
             state = self._state(entity_id)
@@ -572,19 +583,43 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             self._errors.pop(entity_id, None)
             try:
-                await self._sync_trv(entity_id, device, state, output and not self.window_blocked)
+                await self._sync_trv(
+                    entity_id,
+                    device,
+                    state,
+                    output and not self.window_blocked,
+                    maintenance=maintenance,
+                )
                 if (
                     enabled
+                    and self.maintenance.phase is None
                     and not self._windows_open()
                     and not self._is_auto(self._state(entity_id))
                 ):
                     await self._calibrate(entity_id, device, state, room)
             except (HomeAssistantError, TimeoutError, ValueError) as err:
+                await self.maintenance.async_cancel("failed")
+                maintenance = None
                 self._errors[entity_id] = str(err)
                 _LOGGER.warning(
                     "Control of %s failed; retry in %s seconds: %s", entity_id, RETRY_SECONDS, err
                 )
+        if exercising and self.maintenance.phase == "restore":
+            await self._restore_maintenance_output()
+        await self.maintenance.async_finish()
         self._publish()
+
+    async def _restore_maintenance_output(self) -> None:
+        """Undo temporary device setpoints, also on failure or integration unload."""
+        for entity_id, device in self.devices.items():
+            state = self._state(entity_id)
+            if state is None:
+                continue
+            try:
+                await self._sync_trv(entity_id, device, state, self._normal_output)
+            except (HomeAssistantError, TimeoutError, ValueError) as err:
+                self._errors[entity_id] = str(err)
+                _LOGGER.warning("Restoring %s after valve maintenance failed: %s", entity_id, err)
 
     def _forget_commands(self, entity_id: str) -> None:
         # A schedule may change targets without acknowledging our previous writes.
@@ -622,7 +657,13 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return True
 
     async def _sync_trv(
-        self, entity_id: str, device: dict[str, Any], state: State, enabled: bool
+        self,
+        entity_id: str,
+        device: dict[str, Any],
+        state: State,
+        enabled: bool,
+        *,
+        maintenance: float | None = None,
     ) -> None:
         if self._is_auto(self._state(entity_id)):
             self._forget_commands(entity_id)
@@ -645,12 +686,29 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         wanted = self.effective_target if enabled else float(self.config[CONF_FROST])
         low = celsius(state.attributes.get("min_temp"), unit)
         high = celsius(state.attributes.get("max_temp"), unit)
+        if maintenance is not None:
+            wanted = (
+                (low if low is not None else 5)
+                if maintenance == 0
+                else (high if high is not None else 30)
+            )
         wanted = min(high if high is not None else 35, max(low if low is not None else 5, wanted))
         native = TemperatureConverter.convert(wanted, UnitOfTemperature.CELSIUS, unit)
         step = finite(state.attributes.get("target_temp_step")) or 0.5
         if unit == UnitOfTemperature.CELSIUS:
             native = quantize(
                 native, low if low is not None else 5, high if high is not None else 35, step
+            )
+        elif maintenance is not None:
+            native = quantize(
+                native,
+                TemperatureConverter.convert(
+                    low if low is not None else 5, UnitOfTemperature.CELSIUS, unit
+                ),
+                TemperatureConverter.convert(
+                    high if high is not None else 35, UnitOfTemperature.CELSIUS, unit
+                ),
+                step,
             )
         actual = finite(state.attributes.get("temperature"))
         tolerance = 0.01 if unit == UnitOfTemperature.CELSIUS else 0.5
@@ -661,7 +719,12 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "set_temperature",
                 {"entity_id": entity_id, "temperature": native},
             )
-        if enabled and (self.window_blocked or self._room_temperature() is None):
+        if (enabled or maintenance is not None) and (
+            self.window_blocked
+            or self._room_temperature() is None
+            or maintenance is not None
+            and self._windows_open()
+        ):
             await self._sync_trv(entity_id, device, state, False)
             return
         if state.state != desired:
@@ -762,6 +825,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "calibration": self._calibration,
             "window_blocked": self.window_blocked,
             "control": self.controller.dump(),
+            "valve_maintenance": self.maintenance.dump(),
         }
 
     @callback
@@ -782,5 +846,9 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         async with self._lock:
+            if self.maintenance.phase:
+                await self.maintenance.async_cancel()
+                await self._restore_maintenance_output()
+                await self.maintenance.async_finish()
             await self._store.async_save(self._storage_data())
         await super().async_shutdown()

@@ -577,6 +577,41 @@ test("FBH room options and global Luxtronik settings are editable and validated"
   expect(room.config.use_global_control).toBe(false);
 });
 
+test("daily valve maintenance settings and room exclusion persist through the panel", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mount(page, true);
+  await page.getByRole("tab", { name: "Einstellungen", exact: true }).click();
+  await expect(page.getByLabel("Täglichen Ventil-Wartungszyklus aktivieren")).not.toBeChecked();
+  await expect(page.getByLabel("Wartungszeit (Home-Assistant-Zeitzone)")).toHaveValue("12:00");
+  await expect(page.getByLabel("Dauer je Schaltstellung (s)")).toHaveValue("180");
+  await page.getByLabel("Täglichen Ventil-Wartungszyklus aktivieren").check();
+  await page.getByLabel("Wartungszeit (Home-Assistant-Zeitzone)").fill("13:30");
+  await page.getByLabel("Dauer je Schaltstellung (s)").fill("240");
+  await page.getByRole("button", { name: "Einstellungen speichern", exact: true }).click();
+  await expect(page.getByText("Einstellungen gespeichert.")).toBeVisible();
+  const settings = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")));
+  expect(settings.config.valve_maintenance).toEqual({ enabled: true, time: "13:30", duration: 240 });
+  await page.getByRole("tab", { name: "Übersicht", exact: true }).click();
+  await page.getByRole("button", { name: "Konfigurieren", exact: true }).click();
+  await expect(page.getByLabel("Am täglichen Ventil-Wartungszyklus teilnehmen")).toBeChecked();
+  await page.getByLabel("Am täglichen Ventil-Wartungszyklus teilnehmen").uncheck();
+  await page.getByRole("button", { name: "Raum speichern", exact: true }).click();
+  const room = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_room")));
+  expect(room.config.valve_maintenance).toBe(false);
+});
+
+test("maintenance status displays without changing room setpoint or preset", async ({ page }) => {
+  await mount(page, true);
+  await page.evaluate(() => {
+    const state = window.panel._hass.states["climate.living"];
+    window.updateEntity("climate.living", { ...state, attributes: { ...state.attributes, preset_mode: "schedule", schedule_active: true, valve_maintenance_phase: "open" } });
+  });
+  await expect(page.locator(".status-text")).toHaveText("Wartung · Ventil öffnen");
+  await expect(page.locator(".room-tile .target-input")).toHaveValue("21.0");
+  await expect(page.locator(".room-tile .preset")).toHaveValue("schedule");
+  expect(await page.evaluate(() => window.services.length)).toBe(0);
+});
+
 test("group configuration and selector matrix assign rooms", async ({ page }) => {
   await mount(page, true);
   await page.getByRole("tab", { name: "Thermostate & Gruppen", exact: true }).click();
