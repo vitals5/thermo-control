@@ -5,9 +5,17 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.3.3`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.4.0`.
 
-Neu in **2.3.3**: Alle Wärmepumpen-Zuordnungen, Statussensoren und die Wärmefreigabe sind im Tab **Wärmepumpe** gebündelt. Bestehende Zuordnungen bleiben erhalten. Der Tab **Einstellungen** enthält die globale Raumregelung und Ventilwartung.
+Neu in **2.4.0**: Umfassendes UI/UX-Redesign des gesamten Seitenleisten-Panels für optimale Übersicht und intuitive Bedienung:
+- **Segmentierte Navigation**: Moderner Tab-Switcher im Segmented-Control-Stil mit klarem Kontrast und sanfter Hover-Rückmeldung.
+- **Übersicht & Systemstatus**: Aufgeräumte Stat-Cards für die zentralen Heizungswerte (Vorlauf Ist/Soll, Verdichter, Modus, Hausbedarf).
+- **Master-Sollwertverschiebung**: Kompakte Karte mit Schieberegler und formatiertem Badge-Pill für den Offset-Wert.
+- **Raumkacheln**: Klares Kacheldesign mit akzentuierten Temperaturwerten, optimierten Metrik-Karten und präzisen Steppern.
+- **Wochenzeitpläne & Wärmepumpe**: Pill-Buttons für die Tagesauswahl, übersichtliche 24h-Zeitachse und strukturierte Formulare.
+- **Thermostate & Gruppen sowie Einstellungen**: Strukturierte Tabellen und saubere Feldgruppierungen für alle Konfigurationsbereiche.
+
+Seit **2.3.3**: Alle Wärmepumpen-Zuordnungen, Statussensoren und die Wärmefreigabe sind im Tab **Wärmepumpe** gebündelt. Bestehende Zuordnungen bleiben erhalten. Der Tab **Einstellungen** enthält die globale Raumregelung und Ventilwartung.
 
 Seit **2.3.2**: Verdichterlaufzeiten als digitale 1/0-Spur im Diagramm mit gemeinsamen Zeitachsen und Touch-Tooltip. Die vorhandene Zuordnung **Wärmepumpe → Entitäten zuordnen → Verdichterstatus** wird automatisch verwendet.
 
@@ -43,7 +51,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.3.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.4.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
