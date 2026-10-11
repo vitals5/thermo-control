@@ -137,6 +137,61 @@ test("changing a heat pump entity reloads its own operation choices", async ({ p
   expect(config.dhw.operation_mode).toBe("custom_normal");
 });
 
+test("all existing heat pump assignments stay in one editor and survive saving general settings", async ({ page }) => {
+  const editor = await mountPump(page);
+  const original = await page.evaluate(() => {
+    const settings = structuredClone(window.panel._data.settings);
+    settings.heat_pump = {flow_sensor: "sensor.display_flow", target_sensor: "sensor.flow_target", mode_entity: "select.pump_mode", compressor_entity: "binary_sensor.compressor", automatic_states: ["automatic", "custom_auto"], interlock: true, minimum_flow: 28, flow_margin: 3};
+    for (const [id, state] of [["sensor.display_flow", "32"], ["sensor.flow_target", "35"], ["select.pump_mode", "automatic"], ["binary_sensor.compressor", "on"]]) window.updateEntity(id, {state, attributes: {unit_of_measurement: "°C"}});
+    window.updateSnapshot({settings, revision: window.panel._data.revision + 1});
+    return structuredClone(settings);
+  });
+  await editor.getByText("Entitäten zuordnen", {exact: true}).click();
+  await expect(editor.getByRole("combobox", {name: "Heizkreis Vorlaufsensor", exact: true})).toHaveValue("sensor.pump_flow");
+  await expect(editor.getByRole("combobox", {name: "Vorlauftemperatur Ist (separate Statusquelle)", exact: true})).toHaveValue("sensor.display_flow");
+  await expect(editor.getByRole("combobox", {name: "Verdichterstatus", exact: true})).toHaveValue("binary_sensor.compressor");
+  await editor.getByText("Wärmefreigabe für Raumventile", {exact: true}).click();
+  await expect(editor.getByLabel("Wärmepumpen-Freigabe für Raumventile aktivieren", {exact: true})).toBeChecked();
+  await expect(editor.getByLabel("Minimaler warmer Vorlauf (°C)", {exact: true})).toHaveValue("28");
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  const saved = await page.evaluate(() => window.messages.filter((item) => item.type.endsWith("save_settings")).at(-1).config);
+  expect(saved.heat_pump).toEqual(original.heat_pump);
+  expect(saved.heat_pump_control).toEqual(original.heat_pump_control);
+  await page.getByRole("tab", {name: "Einstellungen", exact: true}).click();
+  const general = page.locator("#system-form");
+  await expect(general.locator("thermo-control-entity-picker")).toHaveCount(0);
+  await expect(general.locator('[name="interlock"]')).toHaveCount(0);
+  await general.getByLabel("Globales Kalibrierungsintervall (s)", {exact: true}).fill("900");
+  await general.getByRole("button", {name: "Einstellungen speichern", exact: true}).click();
+  const after = await page.evaluate(() => window.messages.filter((item) => item.type.endsWith("save_settings")).at(-1).config);
+  expect(after.heat_pump).toEqual(original.heat_pump);
+  expect(after.heat_pump_control).toEqual(original.heat_pump_control);
+  expect(after.calibration_interval).toBe(900);
+});
+
+test("central compressor and heat-release drafts survive telemetry and validation errors until reset", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByText("Entitäten zuordnen", {exact: true}).click();
+  await page.evaluate(() => window.updateEntity("binary_sensor.new_compressor", {state: "off", attributes: {friendly_name: "Neuer Verdichter"}}));
+  await pick(page, "Verdichterstatus", "binary_sensor.new_compressor");
+  await editor.getByText("Wärmefreigabe für Raumventile", {exact: true}).click();
+  await editor.getByLabel("Minimaler warmer Vorlauf (°C)", {exact: true}).fill("29.5");
+  await page.evaluate(() => window.updateSnapshot({system: {compressor: false}, revision: window.panel._data.revision + 1}));
+  await expect(editor.getByRole("combobox", {name: "Verdichterstatus", exact: true})).toHaveValue("binary_sensor.new_compressor");
+  await expect(editor.getByLabel("Minimaler warmer Vorlauf (°C)", {exact: true})).toHaveValue("29.5");
+  await page.evaluate(() => {window.failSettings = true;});
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(editor.locator("#pump-message")).toContainText("inzwischen geändert");
+  await expect(editor.getByRole("combobox", {name: "Verdichterstatus", exact: true})).toHaveValue("binary_sensor.new_compressor");
+  const attempt = await page.evaluate(() => window.messages.filter((item) => item.type.endsWith("save_settings")).at(-1));
+  expect(attempt.config.heat_pump.compressor_entity).toBe("binary_sensor.new_compressor");
+  expect(attempt.config.heat_pump.minimum_flow).toBe(29.5);
+  expect(attempt.revision).toBe(0);
+  await editor.getByRole("button", {name: "Gespeicherte Einstellungen laden", exact: true}).click();
+  await expect(editor.getByRole("combobox", {name: "Verdichterstatus", exact: true})).toHaveValue("");
+  await expect(editor.getByLabel("Minimaler warmer Vorlauf (°C)", {exact: true})).toHaveValue("25");
+});
+
 test("heat pump presets and separate weekly blocking plans are saved", async ({ page }) => {
   const editor = await mountPump(page);
   await editor.getByLabel("Wärmepumpensteuerung aktivieren", {exact: true}).check();
@@ -237,6 +292,8 @@ for (const width of [320, 390]) test(`heat pump central controls fit mobile widt
   await page.setViewportSize({width, height: 844});
   const editor = await mountPump(page);
   await expect(editor.getByRole("heading", {name: "Wärmepumpe", exact: true})).toBeVisible();
+  await editor.getByText("Entitäten zuordnen", {exact: true}).click();
+  await editor.getByText("Wärmefreigabe für Raumventile", {exact: true}).click();
   expect(await editor.evaluate((element) => element.shadowRoot.querySelector("#pump-form").scrollWidth <= element.getBoundingClientRect().width)).toBe(true);
   const fields = editor.locator(".profiles input");
   for (const field of await fields.all()) expect((await field.boundingBox()).width).toBeGreaterThan(40);
@@ -708,7 +765,7 @@ for (const [width, font] of [[320, "system-ui"], [390, "system-ui"], [1280, "sys
   });
 }
 
-test("FBH room options and global Luxtronik settings are editable and validated", async ({ page }) => {
+test("FBH options and central heat pump mappings are editable and validated", async ({ page }) => {
   await mount(page, true);
   await page.evaluate(() => {
     window.updateEntity("sensor.flow", { state: "32", attributes: { friendly_name: "Luxtronik Vorlauf", unit_of_measurement: "°C" } });
@@ -716,16 +773,21 @@ test("FBH room options and global Luxtronik settings are editable and validated"
     window.updateEntity("select.pump_mode", { state: "automatic", attributes: { friendly_name: "Luxtronik Heizmodus" } });
     window.updateEntity("binary_sensor.compressor", { state: "on", attributes: { friendly_name: "Verdichter" } });
   });
-  await page.getByRole("tab", { name: "Einstellungen", exact: true }).click();
-  await pick(page, "Vorlauftemperatur Ist", "sensor.flow");
+  await page.getByRole("tab", { name: "Wärmepumpe", exact: true }).click();
+  await page.getByText("Entitäten zuordnen", {exact: true}).click();
+  await pick(page, "Vorlauftemperatur Ist (separate Statusquelle)", "sensor.flow");
   await pick(page, "Vorlauftemperatur Soll", "sensor.flow_target");
-  await pick(page, "Heizungs-Betriebsmodus", "select.pump_mode");
+  await pick(page, "Heizungs-Betriebsmodus (separate Statusquelle)", "select.pump_mode");
   await pick(page, "Verdichterstatus", "binary_sensor.compressor");
+  await page.getByText("Wärmefreigabe für Raumventile", {exact: true}).click();
   await page.getByLabel("Wärmepumpen-Freigabe für Raumventile aktivieren").check();
+  await page.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(page.getByText("Wärmepumpeneinstellungen gespeichert.", {exact: true})).toBeVisible();
+  await page.getByRole("tab", { name: "Einstellungen", exact: true }).click();
   await page.getByLabel("Trend-Zeitfenster (Min.)", { exact: true }).fill("60");
   await page.getByRole("button", { name: "Einstellungen speichern", exact: true }).click();
-  await expect(page.getByText("Einstellungen gespeichert.")).toBeVisible();
-  const settings = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")));
+  await expect(page.getByText("Einstellungen gespeichert.", {exact: true})).toBeVisible();
+  const settings = await page.evaluate(() => window.messages.filter((message) => message.type.endsWith("save_settings")).at(-1));
   expect(settings.config.heat_pump.flow_sensor).toBe("sensor.flow");
   expect(settings.config.heat_pump.mode_entity).toBe("select.pump_mode");
   expect(settings.config.heat_pump.interlock).toBe(true);

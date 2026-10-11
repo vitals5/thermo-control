@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.3.2`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.3.3`.
 
-Neu in **2.3.2**: Verdichterlaufzeiten als digitale 1/0-Spur im Diagramm mit gemeinsamen Zeitachsen und Touch-Tooltip. Die vorhandene Zuordnung **Einstellungen → Verdichterstatus** wird automatisch verwendet.
+Neu in **2.3.3**: Alle Wärmepumpen-Zuordnungen, Statussensoren und die Wärmefreigabe sind im Tab **Wärmepumpe** gebündelt. Bestehende Zuordnungen bleiben erhalten. Der Tab **Einstellungen** enthält die globale Raumregelung und Ventilwartung.
+
+Seit **2.3.2**: Verdichterlaufzeiten als digitale 1/0-Spur im Diagramm mit gemeinsamen Zeitachsen und Touch-Tooltip. Die vorhandene Zuordnung **Wärmepumpe → Entitäten zuordnen → Verdichterstatus** wird automatisch verwendet.
 
 Seit **2.3.1**: Generische Wärmepumpen-Konfiguration ohne vorbelegte Entitäts-IDs oder Herstellername. Name frei einstellbar; Betriebsmodi werden aus den gewählten HA-Entitäten geladen. Bestehende Zuordnungen bleiben erhalten.
 
@@ -41,7 +43,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.3.2` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.3.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -87,9 +89,11 @@ Leere optionale Zuordnungen entfernen eine explizite Auswahl; anschließend ist 
 
 ## Verdichter im Diagramm
 
-Die unter **Einstellungen → Verdichterstatus** frei zugeordnete `binary_sensor`-Entität erscheint automatisch in **Verläufe & Analyse** als eigene violette digitale Spur unter den Temperaturkurven: **1 = An**, **0 = Aus**. Laufphasen sind zusätzlich hinterlegt; Temperatur- und Vorlaufskalen bleiben unabhängig. Die Diagrammhöhe wächst um 76 px, damit die Temperaturkurven auch mobil ihre bisherige Höhe behalten. Der gemeinsame Touch-Tooltip zeigt den aufgezeichneten Verdichterzustand zum gewählten Zeitpunkt. Fehlende, unbekannte oder nicht verfügbare Zustände werden als Lücken behandelt. Die Spur verwendet die tatsächliche Verdichter-Historie aus HA-Recorder, einschließlich des Ausgangszustands am Beginn des Zeitfensters; sie wird nicht aus Raum-Heizbedarf oder `hvac_action` abgeleitet. Auch die Verdichter-Entität muss vom Recorder aufgezeichnet werden.
+Die unter **Wärmepumpe → Entitäten zuordnen → Verdichterstatus** frei zugeordnete `binary_sensor`-Entität erscheint automatisch in **Verläufe & Analyse** als eigene violette digitale Spur unter den Temperaturkurven: **1 = An**, **0 = Aus**. Laufphasen sind zusätzlich hinterlegt; Temperatur- und Vorlaufskalen bleiben unabhängig. Die Diagrammhöhe wächst um 76 px, damit die Temperaturkurven auch mobil ihre bisherige Höhe behalten. Der gemeinsame Touch-Tooltip zeigt den aufgezeichneten Verdichterzustand zum gewählten Zeitpunkt. Fehlende, unbekannte oder nicht verfügbare Zustände werden als Lücken behandelt. Die Spur verwendet die tatsächliche Verdichter-Historie aus HA-Recorder, einschließlich des Ausgangszustands am Beginn des Zeitfensters; sie wird nicht aus Raum-Heizbedarf oder `hvac_action` abgeleitet. Auch die Verdichter-Entität muss vom Recorder aufgezeichnet werden.
 
 ## Wärmepumpen-Schaltzentrale · PV und Sperrzeiten
+
+**Zentrale Konfiguration:** Unter **Wärmepumpe → Entitäten zuordnen** liegen sowohl Steuerungs- und Heizkreis-Entitäten als auch Statussensoren für Übersicht, Diagramme und Raumfreigabe. Unter **Wärmefreigabe für Raumventile** werden Automatik-Zustände und Vorlaufgrenzen eingestellt. **Wärmepumpeneinstellungen speichern** speichert beide Bereiche gemeinsam. Vorlauf-Ist und Betriebsmodus können weiterhin separate Statusquellen verwenden; ohne diese Zuordnung werden Heizkreis-Vorlaufsensor bzw. Heizungs-Climate herangezogen. Bestehende getrennte Zuordnungen bleiben unverändert erhalten; es ist keine erneute Einrichtung nötig. Allgemeine Raumparameter und Ventilwartung liegen unter **Einstellungen**.
 
 Im Tab **Wärmepumpe** werden Heizung und Warmwasser über frei zugeordnete Home-Assistant-Entitäten gesteuert. Es gibt keine fest hinterlegten Hersteller, Modelle oder Entitäts-IDs. Neue Installationen starten mit leeren Zuordnungen und deaktivierter Steuerung. Unter **Name der Wärmepumpe** ist der Anzeigename frei einstellbar (Vorgabe „Wärmepumpe“); Panel, Übersicht und Statussensoren verwenden diesen Namen. Unter **Entitäten zuordnen** alle benötigten Climate-, Water-Heater-, Number- und Sensor-Entitäten per Live-Suche auswählen. Bestehende gespeicherte Zuordnungen und Betriebsmodi bleiben beim Update erhalten; Sensor-Unique-IDs bleiben stabil. Zuordnungen und Geräte-Grenzen prüfen, Profile einstellen und **Wärmepumpensteuerung aktivieren** speichern. Raumregelung und Raumzeitpläne bleiben separat erhalten.
 
