@@ -17,6 +17,36 @@ async def async_setup_entry(hass, entry, async_add_entities):
             )
         ]
     )
+    async_add_entities(
+        [PumpControlSensor(entry.runtime_data, channel) for channel in ("heating", "dhw")]
+    )
+
+
+class PumpControlSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_icon = "mdi:heat-pump"
+
+    def __init__(self, manager, channel):
+        self.manager, self.channel = manager, channel
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_{channel}"
+        self._attr_name = "Thermo Control Wärmepumpe " + (
+            "Heizung" if channel == "heating" else "Warmwasser"
+        )
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        return self.manager.heat_pump.status[self.channel]["profile"]
+
+    @property
+    def extra_state_attributes(self):
+        return self.manager.heat_pump.snapshot()
 
 
 class DemandSensor(SensorEntity):

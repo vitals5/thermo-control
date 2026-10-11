@@ -74,6 +74,122 @@ async function pick(page, label, entityId, query = entityId) {
   await page.getByRole("listbox").getByRole("option").filter({ has: page.getByText(entityId, { exact: true }) }).click();
 }
 
+async function mountPump(page) {
+  await mount(page, true);
+  await page.getByRole("tab", { name: "Wärmepumpe", exact: true }).click();
+  await page.evaluate(() => {
+    const editor = window.panel.shadowRoot.querySelector("thermo-control-heat-pump-editor"), config = structuredClone(editor._draft);
+    for (const [key, value] of [["mixed_end_entity", 32], ["mixed_shift_entity", 21]]) window.updateEntity(config[key], {state: String(value), attributes: {min: 5, max: 60, step: 0.5, unit_of_measurement: "°C", friendly_name: key}});
+    window.updateSnapshot({settings: {...window.panel._data.settings, heat_pump_control: config}, heat_pump: {enabled: false, return: 28, flow: 32, mixed_flow: 30, dhw_temperature: 40, dhw_target: 42, mixed_end: 32, mixed_shift: 21, channels: {heating: {profile: "disabled"}, dhw: {profile: "disabled"}}}});
+  });
+  return page.locator("thermo-control-heat-pump-editor");
+}
+
+test("heat pump presets and separate weekly blocking plans are saved", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByLabel("Wärmepumpensteuerung aktivieren", {exact: true}).check();
+  await editor.getByRole("combobox", {name: "Priorität", exact: true}).selectOption("pv");
+  await editor.getByLabel("Warmwasser PV-Boost: Sollwert", {exact: true}).fill("54.5");
+  await editor.getByRole("button", {name: "Mo–So", exact: true}).click();
+  await editor.getByRole("button", {name: "Vorlage: 22:00–10:00", exact: true}).click();
+  await editor.getByRole("button", {name: "Plan auf anderen Kanal kopieren", exact: true}).click();
+  await editor.getByRole("combobox", {name: "Zeitplan für", exact: true}).selectOption("dhw");
+  await editor.getByLabel("Zeitblockierung aktiv", {exact: true}).uncheck();
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(editor.getByText("Wärmepumpeneinstellungen gespeichert.", {exact: true})).toBeVisible();
+  const config = await page.evaluate(() => window.messages.find((message) => message.type === "thermo_control/save_settings").config.heat_pump_control);
+  expect(config.enabled).toBe(true);
+  expect(config.priority).toBe("pv");
+  expect(config.heating.profiles.boost).toEqual({end: 50, shift: 30, correction: 5});
+  expect(config.dhw.profiles).toEqual({standard: 42, boost: 54.5, blocked: 30});
+  expect(config.schedules.heating.enabled).toBe(true);
+  expect(config.schedules.dhw.enabled).toBe(false);
+  expect(Object.keys(config.schedules.heating.weekdays)).toHaveLength(7);
+  expect(config.schedules.heating.weekdays.monday).toEqual([{from: "22:00", to: "10:00"}]);
+  expect(config.pv_entity).toBe("input_boolean.wp_laden_evcc");
+  expect(config.dhw.entity).toBe("water_heater.luxtronik_0_00_domestic_water");
+});
+
+test("heat pump visual editor edits overnight blocks for selected weekdays", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByRole("button", {name: "Sa–So", exact: true}).click();
+  await editor.getByRole("button", {name: "+ Sperrblock hinzufügen", exact: true}).click();
+  await editor.getByLabel("Startzeit", {exact: true}).fill("21:30");
+  await editor.getByLabel("Endzeit", {exact: true}).fill("09:30");
+  await editor.getByRole("button", {name: "Block übernehmen", exact: true}).click();
+  await expect(editor.locator("#pump-timeline button")).toHaveCount(1);
+  await editor.locator("#pump-blocks button").click();
+  await editor.getByLabel("Endzeit", {exact: true}).fill("10:00");
+  await editor.getByRole("button", {name: "Block übernehmen", exact: true}).click();
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  const config = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")).config.heat_pump_control);
+  expect(config.schedules.heating.weekdays.saturday).toEqual([{from: "21:30", to: "10:00"}]);
+  expect(config.schedules.heating.weekdays.sunday).toEqual(config.schedules.heating.weekdays.saturday);
+  expect(config.schedules.heating.weekdays.monday).toBeUndefined();
+});
+
+test("heat pump drafts survive live updates and validation errors", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByLabel("Warmwasser Standard: Sollwert", {exact: true}).fill("43.5");
+  await page.evaluate(() => { window.failSettings = true; window.updateSnapshot({revision: 7, heat_pump: {channels: {heating: {profile: "boost", pending: true, pv: true, pv_ready: true, errors: {heating: "Gerät nicht verfügbar"}}}}}); });
+  await expect(editor.locator("#heating-status")).toContainText("PV-Boost · Rückmeldung ausstehend");
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(editor.locator("#pump-message")).toContainText("inzwischen geändert");
+  await expect(editor.getByLabel("Warmwasser Standard: Sollwert", {exact: true})).toHaveValue("43.5");
+  expect(await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")).revision)).toBe(0);
+  await editor.getByRole("button", {name: "Gespeicherte Einstellungen laden", exact: true}).click();
+  await expect(editor.getByLabel("Warmwasser Standard: Sollwert", {exact: true})).toHaveValue("42");
+});
+
+test("mixed heating curve only writes on explicit manual action", async ({ page }) => {
+  const editor = await mountPump(page);
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await editor.getByLabel("Mischkreis-Endpunkt (°C)", {exact: true}).fill("35");
+  await editor.getByLabel("Mischkreis-Parallelverschiebung (°C)", {exact: true}).fill("22");
+  await editor.getByRole("button", {name: "Mischkreis-Heizkurve setzen", exact: true}).click();
+  await expect(editor.locator("#mixed-message")).toContainText("gesetzt");
+  expect(await page.evaluate(() => window.messages.find((message) => message.type.endsWith("set_mixed_curve")))).toEqual({type: "thermo_control/set_mixed_curve", end: 35, shift: 22, revision: 0});
+  await page.evaluate(() => window.updateEntity(window.panel._data.settings.heat_pump_control.mixed_end_entity, {state: "unavailable", attributes: {}}));
+  await expect(editor.getByRole("button", {name: "Mischkreis-Heizkurve setzen", exact: true})).toBeDisabled();
+});
+
+test("heat pump mapping supplies analytics flow without duplicate configuration", async ({ page }) => {
+  await mountPump(page);
+  await page.evaluate(() => window.updateEntity(window.panel._data.settings.heat_pump_control.flow_sensor, {state: "32", attributes: {unit_of_measurement: "°C"}}));
+  await page.getByRole("tab", {name: "Verläufe & Analyse", exact: true}).click();
+  await page.getByRole("checkbox", {name: "Vorlauf", exact: true}).check();
+  await expect(page.locator("#graph-flow-value")).toHaveText("32.0°");
+  expect(await page.evaluate(() => window.messages.filter((message) => message.type === "history/history_during_period").at(-1).entity_ids)).toContain("sensor.luxtronik_0_00_flow_in_temperature");
+});
+
+test("concurrent heat pump settings updates during saving reload the latest document", async ({ page }) => {
+  const editor = await mountPump(page);
+  await page.evaluate(() => {
+    const original = window.panel.hass.callWS;
+    window.panel.hass.callWS = async (message) => {
+      const result = await original(message);
+      if (message.type.endsWith("save_settings")) {
+        const settings = structuredClone(window.panel._data.settings);
+        settings.heat_pump_control.dhw.profiles.standard = 44;
+        window.updateSnapshot({revision: window.panel._data.revision + 1, settings});
+      }
+      return result;
+    };
+  });
+  await editor.getByLabel("Warmwasser Standard: Sollwert", {exact: true}).fill("43.5");
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(editor.getByLabel("Warmwasser Standard: Sollwert", {exact: true})).toHaveValue("44");
+});
+
+for (const width of [320, 390]) test(`heat pump central controls fit mobile width ${width}`, async ({ page }) => {
+  await page.setViewportSize({width, height: 844});
+  const editor = await mountPump(page);
+  await expect(editor.getByRole("heading", {name: "Wärmepumpe · Alpha Innotec WWC 100 H/X", exact: true})).toBeVisible();
+  expect(await editor.evaluate((element) => element.shadowRoot.querySelector("#pump-form").scrollWidth <= element.getBoundingClientRect().width)).toBe(true);
+  const fields = editor.locator(".profiles input");
+  for (const field of await fields.all()) expect((await field.boundingBox()).width).toBeGreaterThan(40);
+});
+
 test("create a room entirely in the panel", async ({ page }) => {
   await mount(page);
   await page.getByRole("button", { name: "Ersten Raum anlegen" }).click();
@@ -255,9 +371,9 @@ test("entity search is safe on mobile and excludes virtual and assigned climates
 });
 
 
-test("five tabs are keyboard accessible and master offset is submitted", async ({ page }) => {
+test("six tabs are keyboard accessible and master offset is submitted", async ({ page }) => {
   await mount(page, true);
-  await expect(page.getByRole("tab")).toHaveCount(5);
+  await expect(page.getByRole("tab")).toHaveCount(6);
   await expect(page.getByRole("tab", { name: "Übersicht", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".master button")).toHaveCount(0);
   await page.locator("#master-offset").focus();
@@ -1051,7 +1167,7 @@ test("legend shows live Celsius values, missing flow and empty history have comp
   await expect(page.locator("#graph-status")).toContainText("Keine aufgezeichneten Messwerte");
   await expect(page.locator("#history-chart path")).toHaveCount(0);
   await page.evaluate(() => {
-    const settings = structuredClone(window.panel._data.settings); settings.heat_pump.flow_sensor = null;
+    const settings = structuredClone(window.panel._data.settings); settings.heat_pump.flow_sensor = null; settings.heat_pump_control.flow_sensor = null;
     window.updateSnapshot({ settings });
     window.historyData = { "climate.living": [{ s: "heat", lu: Date.now() / 1000 - 60, a: { current_temperature_celsius: 21, effective_target_temperature: 21 } }] };
   });

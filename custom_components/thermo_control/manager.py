@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 
 from .configuration import validate_room, validate_settings
 from .const import CONF_TRVS, DEFAULTS, DEVICE_DEFAULTS, DOMAIN, SYSTEM_DEFAULTS
+from .heat_pump import HeatPumpController
 from .schedule import ScheduleManager
 from .system import HeatingSystem
 
@@ -51,6 +52,7 @@ class RoomManager:
         self.settings = deepcopy(SYSTEM_DEFAULTS)
         self.groups = {}
         self.system = HeatingSystem(self)
+        self.heat_pump = HeatPumpController(self)
         self.schedules = ScheduleManager(self)
         self._reconcile_task = None
         self._reconcile_again = False
@@ -76,6 +78,7 @@ class RoomManager:
                 self.hass, stored.get("settings", deepcopy(SYSTEM_DEFAULTS)), check_entities=False
             )
         await self.schedules.async_initialize()
+        await self.heat_pump.async_initialize()
         self.system.bind()
 
     def _payload(self, rooms: dict[str, Any], revision: int) -> dict[str, Any]:
@@ -135,6 +138,7 @@ class RoomManager:
                 await coordinator.async_initialize()
                 self.entities[room_id] = ThermoControlClimate(coordinator, manager=self)
             self.schedules.bind()
+            self.heat_pump.bind()
             add_entities(list(self.entities.values()))
             await self._sync_groups()
             self.notify()
@@ -158,6 +162,15 @@ class RoomManager:
             if room_id is not None and room_id not in self.rooms:
                 raise ServiceValidationError("Der Raum existiert nicht mehr.")
             validated = validate_room(self.hass, config, self.rooms, room_id)
+            pump = self.settings["heat_pump_control"]
+            if (
+                pump["enabled"]
+                and pump["heating"]["enabled"]
+                and pump["heating"]["entity"] in validated["trvs"]
+            ):
+                raise ServiceValidationError(
+                    "Die Wärmepumpen-Heizung darf kein Raumthermostat sein."
+                )
             if validated["group_id"] is not None and validated["group_id"] not in {
                 group["id"] for group in self.settings["groups"]
             }:
@@ -252,6 +265,7 @@ class RoomManager:
     async def async_reconcile(self) -> None:
         while self._reconcile_again and not self._closed:
             self._reconcile_again = False
+            await self.heat_pump.async_reconcile()
             for entity in list(self.entities.values()):
                 try:
                     await entity.coordinator._tick()
@@ -265,6 +279,15 @@ class RoomManager:
         async with self._lock:
             self._check_revision(revision)
             validated = validate_settings(self.hass, config)
+            pump = validated["heat_pump_control"]
+            if (
+                pump["enabled"]
+                and pump["heating"]["enabled"]
+                and any(pump["heating"]["entity"] in room["trvs"] for room in self.rooms.values())
+            ):
+                raise ServiceValidationError(
+                    "Die Wärmepumpen-Heizung ist bereits einem Raum zugeordnet."
+                )
             ids = {group["id"] for group in validated["groups"]}
             if any(
                 room["group_id"] and room["group_id"] not in ids for room in self.rooms.values()
@@ -278,6 +301,7 @@ class RoomManager:
             self.settings = validated
             self.revision += 1
             self.system.bind()
+            self.heat_pump.bind()
             await self._sync_groups()
             self.notify()
             self.schedule_reconcile()
@@ -325,6 +349,7 @@ class RoomManager:
             "settings": deepcopy(self.settings),
             "system_defaults": deepcopy(SYSTEM_DEFAULTS),
             "system": self.system.snapshot(),
+            "heat_pump": self.heat_pump.snapshot(),
             "groups": [
                 {"id": group_id, "entity_id": group.entity_id}
                 for group_id, group in self.groups.items()
@@ -346,8 +371,10 @@ class RoomManager:
         self._closed = True
         self.system.close()
         self.schedules.close()
+        self.heat_pump.close()
         if self._reconcile_task and not self._reconcile_task.done():
             self._reconcile_task.cancel()
             await asyncio.gather(self._reconcile_task, return_exceptions=True)
         for entity in list(self.entities.values()):
             await entity.coordinator.async_shutdown()
+        await self.heat_pump.async_shutdown()

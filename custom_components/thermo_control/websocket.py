@@ -137,8 +137,34 @@ def async_register_commands(hass: HomeAssistant) -> None:
         ws_get_schedules,
         ws_save_schedule,
         ws_copy_schedule,
+        ws_set_mixed_curve,
     ):
         websocket_api.async_register_command(hass, command)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/set_mixed_curve",
+        vol.Required("end"): vol.Coerce(float),
+        vol.Required("shift"): vol.Coerce(float),
+        vol.Required("revision"): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_set_mixed_curve(hass, connection, msg):
+    from homeassistant.exceptions import HomeAssistantError
+
+    try:
+        await hass.data[DOMAIN].heat_pump.async_set_mixed_curve(
+            msg["end"], msg["shift"], msg["revision"]
+        )
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except (HomeAssistantError, TimeoutError, OSError) as err:
+        connection.send_error(msg["id"], "device_error", str(err))
+    else:
+        connection.send_result(msg["id"])
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/get_schedules"})

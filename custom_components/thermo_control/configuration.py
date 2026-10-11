@@ -33,9 +33,11 @@ from .const import (
     DEFAULTS,
     DEVICE_DEFAULTS,
     DOMAIN,
+    HEAT_PUMP_CONTROL_DEFAULTS,
     MAINTENANCE_DEFAULTS,
     PRESETS,
 )
+from .heat_pump import validate_pump_control
 from .helpers import celsius, finite
 
 
@@ -130,6 +132,9 @@ def validate_settings(
             vol.Required("calibration_interval"): _range(300, 86400),
             vol.Required("control"): validate_control,
             vol.Optional(
+                "heat_pump_control", default=lambda: deepcopy(HEAT_PUMP_CONTROL_DEFAULTS)
+            ): dict,
+            vol.Optional(
                 "valve_maintenance", default=lambda: deepcopy(MAINTENANCE_DEFAULTS)
             ): vol.Schema(
                 {
@@ -175,6 +180,9 @@ def validate_settings(
     )
     try:
         result = schema(deepcopy(config))
+        result["heat_pump_control"] = validate_pump_control(
+            hass, result["heat_pump_control"], check_entities=check_entities
+        )
         ids = [group["id"] for group in result["groups"]]
         if len(ids) != len(set(ids)) or any(
             not group["name"].strip() for group in result["groups"]

@@ -30,7 +30,8 @@ const DEVICE_NUMBERS = [
 const CONTROL_VALUES = { tolerance: 0.2, trend_window: 45, inertia: 1, lookahead: 180, cycle_minutes: 45, minimum_on: 300, minimum_off: 300, proportional_band: 2, integral_hours: 6 };
 const CONTROL_NUMBERS = NUMBERS.filter(([key]) => key in CONTROL_VALUES);
 const MAINTENANCE_VALUES = { enabled: false, time: "12:00", duration: 180 };
-const SYSTEM_VALUES = { valve_maintenance: MAINTENANCE_VALUES, master_offset: 0, calibration_interval: 600, control: CONTROL_VALUES, groups: [], heat_pump: { flow_sensor: null, target_sensor: null, mode_entity: null, compressor_entity: null, automatic_states: ["automatic", "automatik", "automatisch", "auto"], interlock: false, minimum_flow: 25, flow_margin: 2 } };
+const PUMP_CONTROL_VALUES = {"enabled": false, "pv_entity": "input_boolean.wp_laden_evcc", "priority": "block", "pv_delay": 180, "minimum_hold": 600, "heating_mode": "automatic", "heating": {"enabled": true, "entity": "climate.luxtronik_0_00_heating", "correction_entity": null, "end_entity": "number.luxtronik_0_00_heating_curve_end_temperature", "shift_entity": "number.luxtronik_0_00_heating_curve_parallel_shift_temperature", "automatic_mode": "heat", "blocked_mode": "keep", "profiles": {"standard": {"end": 32, "shift": 21, "correction": 0}, "boost": {"end": 50, "shift": 30, "correction": 5}, "blocked": {"end": 20, "shift": 15, "correction": -5}}}, "dhw": {"enabled": true, "entity": "water_heater.luxtronik_0_00_domestic_water", "operation_mode": "heat_pump", "profiles": {"standard": 42, "boost": 55, "blocked": 30}}, "return_sensor": "sensor.luxtronik_0_00_flow_out_temperature", "flow_sensor": "sensor.luxtronik_0_00_flow_in_temperature", "mixed_sensor": "sensor.luxtronik_0_00_flow_in_circuit1_temperature", "mixed_end_entity": "number.luxtronik_0_00_heating_curve_circuit1_end_temperature", "mixed_shift_entity": "number.luxtronik_0_00_heating_curve_circuit1_parallel_shift_temperature", "schedules": {"heating": {"enabled": false, "weekdays": {}}, "dhw": {"enabled": false, "weekdays": {}}}};
+const SYSTEM_VALUES = { heat_pump_control: PUMP_CONTROL_VALUES, valve_maintenance: MAINTENANCE_VALUES, master_offset: 0, calibration_interval: 600, control: CONTROL_VALUES, groups: [], heat_pump: { flow_sensor: null, target_sensor: null, mode_entity: null, compressor_entity: null, automatic_states: ["automatic", "automatik", "automatisch", "auto"], interlock: false, minimum_flow: 25, flow_margin: 2 } };
 const create = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -383,6 +384,140 @@ class ThermoControlScheduleEditor extends HTMLElement {
 }
 customElements.define("thermo-control-schedule-editor", ThermoControlScheduleEditor);
 
+/* Local Luxtronik control centre; loaded by the Thermo Control panel. */
+class ThermoControlHeatPumpEditor extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: "open" }); this._days = ["monday"]; this._channel = "heating"; }
+  connectedCallback() { if (!this.shadowRoot.hasChildNodes()) this._build(); if (this._context) this._refresh(); }
+  set context(value) { this._context = value; if (this.isConnected) this._refresh(); }
+  _refresh() {
+    const data = this._context.data, config = data.settings?.heat_pump_control || data.system_defaults?.heat_pump_control || PUMP_CONTROL_VALUES;
+    if (!this._draft || data.revision > this._revision && !this._dirty && !this._saving) {
+      this._draft = structuredClone(config); this._revision = data.revision; this._fill();
+    }
+    const pump = data.heat_pump || {}, format = (value) => value == null || value === "" || !Number.isFinite(Number(value)) ? "—" : `${Number(value).toLocaleString("de-DE", { maximumFractionDigits: 1 })} °C`;
+    for (const picker of this.shadowRoot.querySelectorAll("thermo-control-entity-picker")) picker.hass = this._context.hass;
+    const status = this.shadowRoot.querySelector("#pump-status"); status.replaceChildren();
+    for (const [label, value] of [["Heizkreis Rücklauf", format(pump.return)], ["Heizkreis Vorlauf", format(pump.flow)], ["Mischkreis Vorlauf", format(pump.mixed_flow)], ["Warmwasser Ist / Soll", `${format(pump.dhw_temperature)} / ${format(pump.dhw_target)}`]]) {
+      const item = create("div", label); item.append(create("strong", value)); status.append(item);
+    }
+    const profiles = { standard: "Standard", boost: "PV-Boost", blocked: "Blockierung", off: "Aus", disabled: "Steuerung deaktiviert" };
+    for (const channel of ["heating", "dhw"]) {
+      const state = pump.channels?.[channel] || { profile: "disabled" };
+      this.shadowRoot.querySelector(`#${channel}-status`).textContent = `${profiles[state.profile] || state.profile}${state.pending ? " · Rückmeldung ausstehend" : ""}${state.pv === null ? " · PV-Signal nicht verfügbar" : state.pv && !state.pv_ready ? " · PV-Verzögerung" : ""}${Object.values(state.errors || {}).length ? ` · ${Object.values(state.errors).join("; ")}` : ""}`;
+    }
+    for (const [name, key] of [["mixed_end", "mixed_end"], ["mixed_shift", "mixed_shift"]]) {
+      const field = this.shadowRoot.querySelector(`[name=${name}]`), entityId = config[`${name}_entity`], state = this._context.hass.states[entityId];
+      const unit = state?.attributes.unit_of_measurement, toCelsius = (value) => unit === "°F" ? (Number(value) - 32) * 5 / 9 : unit === "K" ? Number(value) - 273.15 : Number(value);
+      if (this.shadowRoot.activeElement !== field && !this._mixedDirty) field.value = pump[key] ?? (state && !["unknown", "unavailable"].includes(state.state) ? toCelsius(state.state) : "");
+      field.min = state?.attributes.min == null ? 5 : toCelsius(state.attributes.min); field.max = state?.attributes.max == null ? 60 : toCelsius(state.attributes.max); field.step = (state?.attributes.step ?? 0.5) * (unit === "°F" ? 5 / 9 : 1);
+      field.disabled = !state || ["unknown", "unavailable"].includes(state.state);
+    }
+    this.shadowRoot.querySelector("#mixed-save").disabled = ["mixed_end", "mixed_shift"].some((name) => this.shadowRoot.querySelector(`[name=${name}]`).disabled);
+  }
+  _build() {
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;color:var(--primary-text-color,#23312d);font:inherit}*{box-sizing:border-box}form,section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:14px;padding:14px;margin-bottom:12px;min-width:0}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px;margin:18px 0 8px}p{font-size:13px;line-height:1.5}.help{color:var(--secondary-text-color,#69786e)}label{display:flex;flex-direction:column;gap:5px;font-size:13px;min-width:0;margin-bottom:10px}input,select,button{font:inherit;color:inherit;min-height:44px;border:1px solid var(--divider-color,#ccc);border-radius:8px;padding:8px;background:var(--card-background-color,#fff);min-width:0;max-width:100%}button{cursor:pointer}button.primary{background:var(--primary-color,#287757);color:var(--text-primary-color,#fff)}.checkbox{flex-direction:row;align-items:center}.checkbox input{width:20px;height:20px;min-height:20px;flex-shrink:0}.fields,.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.status-grid div{font-size:12px;color:var(--secondary-text-color,#69786e)}.status-grid strong{display:block;font-size:20px;color:var(--primary-text-color,#23312d);margin-top:4px}.profiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.profiles fieldset{border:1px solid var(--divider-color,#ddd);border-radius:10px;padding:8px;min-width:0}.profiles legend{font-size:12px;font-weight:600}.profiles label{font-size:12px}.profiles input{width:100%}.actions,.days{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.days button[aria-pressed=true]{background:var(--primary-color,#287757);color:var(--text-primary-color,#fff)}.timeline{height:48px;position:relative;background:#28775733;border-radius:8px;overflow:hidden;margin-top:12px}.timeline button{position:absolute;top:0;height:100%;min-height:0;padding:2px;background:#d58547;border:1px solid #fff6;border-radius:0;font-size:11px;overflow:hidden}.axis{display:flex;justify-content:space-between;font-size:11px}.blocks button{display:block;width:100%;text-align:left;margin-top:6px}.note{font-size:13px;overflow-wrap:anywhere}.picker{margin:10px 0}details summary{cursor:pointer;margin:12px 0}input:focus-visible,button:focus-visible,select:focus-visible{outline:3px solid var(--primary-color,#287757);outline-offset:2px}@media(min-width:700px){.status-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    </style><section><h2>Wärmepumpe · Alpha Innotec WWC 100 H/X</h2><div id="pump-status" class="status-grid"></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p></section>
+    <form id="pump-form"><h2>Steuerung & Sollwerte</h2><label class="checkbox"><input name="enabled" type="checkbox">Wärmepumpensteuerung aktivieren</label><div class="fields"><label>Heizungsmodus<select name="heating_mode"><option value="automatic">Automatik</option><option value="off">Aus</option></select></label><label>Priorität<select name="priority"><option value="block">Zeitblockierung vor PV-Boost</option><option value="pv">PV-Boost vor Zeitblockierung</option></select></label><label>PV-Signal muss aktiv sein (s)<input name="pv_delay" type="number" min="0" max="1800" step="1" required></label><label>Mindesthaltezeit Standard / Boost (s)<input name="minimum_hold" type="number" min="60" max="3600" step="1" required></label></div>
+    <label class="checkbox"><input name="heating_enabled" type="checkbox">Heizung automatisch steuern</label><div id="heating-profiles" class="profiles"></div><div class="fields"><label>Automatik in HA<select name="automatic_mode"><option value="heat">Heizen (Luxtronik Automatik)</option><option value="auto">Auto</option></select></label><label>Heizung im Sperrzeitfenster<select name="blocked_mode"><option value="keep">Über Sollwerte / Heizkurve absenken</option><option value="off">Zusätzlich Heizungsmodus Aus</option></select></label></div>
+    <label class="checkbox"><input name="dhw_enabled" type="checkbox">Warmwasser automatisch steuern</label><div id="dhw-profiles" class="profiles"></div><label>Warmwasser-Betriebsmodus<select name="operation_mode"><option value="heat_pump">Wärmepumpe / Automatik</option><option value="">Unverändert lassen</option><option value="performance">Performance / Party</option></select></label><p class="help">PV-Boost erhöht die Sollwerte. Der Verdichter und interne Schutzfunktionen bleiben unter Luxtronik-Regelung. Der Heizkreis ist rücklaufgeführt; der Mischkreis ist vorlaufgeführt. Blockierung über niedrigere Sollwerte ist eine Absenkung; für ein gezieltes Abschalten kann zusätzlich „Aus“ gewählt werden.</p>
+    <details><summary>Entitäten zuordnen</summary><div id="pump-pickers" class="fields"></div><p class="help">Die Heizungs-Climate muss eine Korrektur von −5 bis +5 °C bereitstellen. Zeigt sie einen Raum-Sollwert, ordne stattdessen eine Heizzielkorrektur-Number zu. Heizkurven- und Warmwasserwerte müssen innerhalb der Geräte-Grenzen liegen.</p></details>
+    <h2>Sperrzeiten · Wochenplan</h2><label>Zeitplan für<select id="schedule-channel"><option value="heating">Heizung</option><option value="dhw">Warmwasser</option></select></label><label class="checkbox"><input id="schedule-enabled" type="checkbox">Zeitblockierung aktiv</label><p id="pump-zone" class="help"></p><div class="days" id="pump-days"></div><div class="actions"><button type="button" id="weekdays">Mo–Fr</button><button type="button" id="weekend">Sa–So</button><button type="button" id="all-days">Mo–So</button><button type="button" id="night-template">Vorlage: 22:00–10:00</button></div><div id="pump-timeline" class="timeline" aria-label="24-Stunden-Sperrzeiten"></div><div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><div id="pump-blocks" class="blocks"></div><div class="actions"><button type="button" id="pump-add-block">+ Sperrblock hinzufügen</button><button type="button" id="pump-copy-day">Tag auf ausgewählte Tage kopieren</button><button type="button" id="pump-copy-channel">Plan auf anderen Kanal kopieren</button></div>
+    <div id="pump-block-editor" hidden><h3>Sperrblock bearbeiten</h3><div class="fields"><label>Startzeit<input id="pump-block-from" type="time"></label><label>Endzeit<input id="pump-block-to" type="text" pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00" placeholder="HH:MM oder 24:00"></label></div><div class="actions"><button type="button" id="pump-block-apply">Block übernehmen</button><button type="button" id="pump-block-delete">Block löschen</button><button type="button" id="pump-block-cancel">Abbrechen</button></div></div>
+    <div class="actions"><button type="submit" class="primary">Wärmepumpeneinstellungen speichern</button><button type="button" id="pump-reset">Gespeicherte Einstellungen laden</button></div><p id="pump-message" class="note" role="alert"></p></form>
+    <section><h2>Mischkreis · Heizkurve</h2><p class="help">Diese Werte werden ausschließlich hier manuell geändert; Standard, PV-Boost und Sperrzeiten überschreiben sie nicht.</p><div class="fields"><label>Mischkreis-Endpunkt (°C)<input name="mixed_end" type="number"></label><label>Mischkreis-Parallelverschiebung (°C)<input name="mixed_shift" type="number"></label></div><button id="mixed-save">Mischkreis-Heizkurve setzen</button><p id="mixed-message" class="note" role="alert"></p></section>`;
+    const root = this.shadowRoot;
+    root.querySelector("#pump-form").oninput = () => { this._dirty = true; };
+    root.querySelector("#pump-form").onsubmit = (event) => { event.preventDefault(); this._save(); };
+    root.querySelector("#pump-reset").onclick = () => { this._dirty = false; this._draft = null; this._refresh(); };
+    root.querySelector("#schedule-channel").onchange = (event) => { this._channel = event.target.value; this._renderDays(); };
+    root.querySelector("#schedule-enabled").onchange = (event) => { this._plan().enabled = event.target.checked; this._dirty = true; };
+    for (const [id, days] of [["weekdays", Object.keys(SCHEDULE_DAYS).slice(0, 5)], ["weekend", Object.keys(SCHEDULE_DAYS).slice(5)], ["all-days", Object.keys(SCHEDULE_DAYS)]]) root.querySelector(`#${id}`).onclick = () => { this._days = days; this._renderDays(); };
+    root.querySelector("#night-template").onclick = () => { this._plan().enabled = true; for (const day of this._days) this._plan().weekdays[day] = [{ from: "22:00", to: "10:00" }]; this._dirty = true; this._renderDays(); };
+    root.querySelector("#pump-add-block").onclick = () => this._edit(null);
+    root.querySelector("#pump-block-apply").onclick = () => this._apply();
+    root.querySelector("#pump-block-delete").onclick = () => this._apply(true);
+    root.querySelector("#pump-block-cancel").onclick = () => { root.querySelector("#pump-block-editor").hidden = true; this._editing = null; };
+    root.querySelector("#pump-copy-day").onclick = () => { const blocks = this._plan().weekdays[this._days[0]] || []; for (const day of this._days) this._plan().weekdays[day] = structuredClone(blocks); this._dirty = true; this._renderDays(); };
+    root.querySelector("#pump-copy-channel").onclick = () => { this._draft.schedules[this._channel === "heating" ? "dhw" : "heating"] = structuredClone(this._plan()); this._dirty = true; this._message("Plan auf den anderen Kanal kopiert. Noch speichern."); };
+    for (const name of ["mixed_end", "mixed_shift"]) root.querySelector(`[name=${name}]`).oninput = () => { this._mixedDirty = true; };
+    root.querySelector("#mixed-save").onclick = () => this._saveMixed();
+  }
+  _fill() {
+    const root = this.shadowRoot, form = root.querySelector("#pump-form"), config = this._draft;
+    for (const key of ["enabled", "heating_mode", "priority", "pv_delay", "minimum_hold"]) { const field = form.elements[key]; if (field.type === "checkbox") field.checked = config[key]; else field.value = config[key]; }
+    for (const channel of ["heating", "dhw"]) {
+      form.elements[`${channel}_enabled`].checked = config[channel].enabled;
+      const container = root.querySelector(`#${channel}-profiles`); container.replaceChildren();
+      for (const [profile, label] of [["standard", "Standard"], ["boost", "PV-Boost"], ["blocked", "Blockierung"]]) {
+        const fieldset = create("fieldset"), legend = create("legend", label); fieldset.append(legend);
+        const values = channel === "heating" ? [["end", "Endpunkt", 10, 60], ["shift", "Parallel", 5, 35], ["correction", "Korrektur", -5, 5]] : [["temperature", "Sollwert", 10, 65]];
+        for (const [key, title, min, max] of values) { const fieldLabel = create("label", `${title} (°C)`), input = document.createElement("input"); input.type = "number"; input.name = `${channel}_${profile}_${key}`; input.min = min; input.max = max; input.step = "0.5"; input.required = true; input.value = channel === "heating" ? config[channel].profiles[profile][key] : config[channel].profiles[profile]; input.setAttribute("aria-label", `${channel === "heating" ? "Heizung" : "Warmwasser"} ${label}: ${title}`); fieldLabel.append(input); fieldset.append(fieldLabel); }
+        container.append(fieldset);
+      }
+    }
+    for (const key of ["automatic_mode", "blocked_mode"]) form.elements[key].value = config.heating[key];
+    form.elements.operation_mode.value = config.dhw.operation_mode;
+    const pickers = root.querySelector("#pump-pickers"); pickers.replaceChildren();
+    for (const [path, title, domains] of [["pv_entity", "EVCC PV-Ladesignal", ["input_boolean", "binary_sensor"]], ["heating.entity", "Luxtronik Heizungs-Climate", "climate"], ["heating.correction_entity", "Heizzielkorrektur-Number (optional)", "number"], ["heating.end_entity", "Heizkreis Heizkurven-Endpunkt", "number"], ["heating.shift_entity", "Heizkreis Parallelverschiebung", "number"], ["dhw.entity", "Luxtronik Warmwasser", "water_heater"], ["return_sensor", "Heizkreis Rücklaufsensor", "sensor"], ["flow_sensor", "Heizkreis Vorlaufsensor", "sensor"], ["mixed_sensor", "Mischkreis Vorlaufsensor", "sensor"], ["mixed_end_entity", "Mischkreis Heizkurven-Endpunkt", "number"], ["mixed_shift_entity", "Mischkreis Parallelverschiebung", "number"]]) {
+      const picker = document.createElement("thermo-control-entity-picker"), [owner, key] = path.includes(".") ? path.split(".") : [null, path]; picker.dataset.path = path; picker.configure({ name: path, label: title, domain: domains, values: owner ? config[owner][key] : config[key], emptyLabel: "Keine Zuordnung" }); picker.hass = this._context.hass; picker.addEventListener("change", () => { this._dirty = true; }); pickers.append(picker);
+    }
+    this._renderDays();
+  }
+  _plan() { return this._draft.schedules[this._channel]; }
+  _renderDays() {
+    const root = this.shadowRoot, days = root.querySelector("#pump-days"); days.replaceChildren();
+    root.querySelector("#schedule-enabled").checked = this._plan().enabled;
+    root.querySelector("#pump-zone").textContent = `Zeitzone: ${this._context.data.time_zone || "Home Assistant"} · Orange = blockiert · Grün = Standard / PV`;
+    for (const [day, title] of Object.entries(SCHEDULE_DAYS)) { const button = create("button", title); button.type = "button"; button.setAttribute("aria-pressed", String(this._days.includes(day))); button.onclick = () => { this._days = [day]; this._renderDays(); }; days.append(button); }
+    const timeline = root.querySelector("#pump-timeline"), blocks = root.querySelector("#pump-blocks"); timeline.replaceChildren(); blocks.replaceChildren();
+    const day = this._days[0], allDays = Object.keys(SCHEDULE_DAYS), previous = allDays[(allDays.indexOf(day) + 6) % 7];
+    const value = (time) => time === "24:00" ? 1440 : Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+    for (const source of [previous, day]) for (const [index, block] of (this._plan().weekdays[source] || []).entries()) {
+      const from = value(block.from), to = value(block.to), overnight = to < from;
+      if (source === previous && !overnight) continue;
+      const left = source === previous ? 0 : from, right = source === previous ? to : overnight ? 1440 : to;
+      const edit = () => { if (source !== day) { this._days = [source]; this._renderDays(); } this._edit(index); };
+      const segment = create("button", `${block.from}–${block.to}`); segment.type = "button"; segment.style.left = `${left / 14.4}%`; segment.style.width = `${(right - left) / 14.4}%`; segment.setAttribute("aria-label", `Sperrblock ${SCHEDULE_DAYS[source]} ${block.from} bis ${block.to}`); segment.onclick = edit; timeline.append(segment);
+      const item = create("button", `${source === previous ? `${SCHEDULE_DAYS[source]} → ` : ""}${block.from}–${block.to} · Blockierung`); item.type = "button"; item.onclick = edit; blocks.append(item);
+    }
+    root.querySelector("#pump-block-editor").hidden = true;
+  }
+  _edit(index) { this._editing = index; const block = index === null ? { from: "22:00", to: "10:00" } : this._plan().weekdays[this._days[0]][index]; const root = this.shadowRoot; root.querySelector("#pump-block-from").value = block.from; root.querySelector("#pump-block-to").value = block.to; root.querySelector("#pump-block-delete").hidden = index === null; root.querySelector("#pump-block-editor").hidden = false; }
+  _apply(remove = false) {
+    const root = this.shadowRoot, from = root.querySelector("#pump-block-from"), to = root.querySelector("#pump-block-to");
+    if (!remove && (!from.value || !to.value || !from.reportValidity() || !to.reportValidity() || from.value === to.value)) { this._message("Gültige, unterschiedliche Start- und Endzeiten eingeben."); return; }
+    const template = structuredClone(this._plan().weekdays[this._days[0]] || []);
+    if (remove) template.splice(this._editing, 1); else if (this._editing === null) template.push({ from: from.value, to: to.value }); else template[this._editing] = { from: from.value, to: to.value };
+    for (const day of this._days) this._plan().weekdays[day] = structuredClone(template);
+    this._dirty = true; this._renderDays(); this._message("Sperrblock übernommen. Noch speichern.");
+  }
+  _message(text) { this.shadowRoot.querySelector("#pump-message").textContent = text; }
+  async _save() {
+    const form = this.shadowRoot.querySelector("#pump-form"); if (this._saving || !form.reportValidity()) return;
+    const config = structuredClone(this._draft);
+    for (const key of ["enabled", "heating_mode", "priority", "pv_delay", "minimum_hold"]) { const field = form.elements[key]; config[key] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }
+    for (const channel of ["heating", "dhw"]) { config[channel].enabled = form.elements[`${channel}_enabled`].checked; for (const profile of ["standard", "boost", "blocked"]) { if (channel === "heating") for (const key of ["end", "shift", "correction"]) config[channel].profiles[profile][key] = Number(form.elements[`${channel}_${profile}_${key}`].value); else config[channel].profiles[profile] = Number(form.elements[`${channel}_${profile}_temperature`].value); } }
+    for (const key of ["automatic_mode", "blocked_mode"]) config.heating[key] = form.elements[key].value;
+    config.dhw.operation_mode = form.elements.operation_mode.value;
+    for (const picker of form.querySelectorAll("thermo-control-entity-picker")) { picker.commit(); if (!picker.reportValidity()) return; const [owner, key] = picker.dataset.path.includes(".") ? picker.dataset.path.split(".") : [null, picker.dataset.path]; if (owner) config[owner][key] = picker.value || null; else config[key] = picker.value || null; }
+    const settings = structuredClone(this._context.data.settings || SYSTEM_VALUES); settings.heat_pump_control = config;
+    this._saving = true; form.querySelector("button[type=submit]").disabled = true;
+    try { const revision = this._revision; await this._context.hass.callWS({ type: "thermo_control/save_settings", config: settings, revision }); this._dirty = false; this._draft = config; this._revision = revision + 1; this._message("Wärmepumpeneinstellungen gespeichert."); }
+    catch (error) { this._message(error.message || String(error)); }
+    finally { this._saving = false; form.querySelector("button[type=submit]").disabled = false; this._refresh(); }
+  }
+  async _saveMixed() {
+    const root = this.shadowRoot, fields = [root.querySelector('[name="mixed_end"]'), root.querySelector('[name="mixed_shift"]')]; if (fields.some((field) => field.disabled || !field.value || !field.reportValidity())) return;
+    root.querySelector("#mixed-save").disabled = true;
+    try { await this._context.hass.callWS({ type: "thermo_control/set_mixed_curve", end: Number(fields[0].value), shift: Number(fields[1].value), revision: this._context.data.revision }); this._mixedDirty = false; root.querySelector("#mixed-message").textContent = "Mischkreis-Heizkurve gesetzt."; }
+    catch (error) { root.querySelector("#mixed-message").textContent = error.message || String(error); }
+    finally { root.querySelector("#mixed-save").disabled = false; }
+  }
+}
+customElements.define("thermo-control-heat-pump-editor", ThermoControlHeatPumpEditor);
+
+
 class ThermoControlPanel extends HTMLElement {
   constructor() {
     super();
@@ -487,7 +622,7 @@ class ThermoControlPanel extends HTMLElement {
         .error{border:1px solid #d89e91;background:var(--card-background-color,#fff);color:var(--error-color,#ae4933);border-radius:9px;padding:13px 16px;margin-bottom:20px}.error:empty{display:none}dialog{border:1px solid var(--divider-color,#d4ded5);border-radius:16px;background:var(--card-background-color,#fff);color:inherit;padding:0;max-width:850px;width:calc(100% - 32px);max-height:90vh;box-shadow:0 25px 80px #0003}dialog::backdrop{background:#10261b66}.dialog-header{display:flex;justify-content:space-between;align-items:center;padding:23px 26px;border-bottom:1px solid var(--divider-color,#dde5de)}.dialog-header p{font-size:12px;margin-top:6px}.dialog-body{padding:25px 26px;max-height:65vh;overflow:auto}.fields{display:grid;grid-template-columns:1fr 1fr;gap:20px}.wide{grid-column:1/-1}.help{font-size:11px;line-height:1.5;font-weight:400;color:var(--secondary-text-color,#69786e)}details{border:1px solid var(--divider-color,#dce4dd);border-radius:10px;margin-top:24px;padding:16px}summary{cursor:pointer;font-size:14px;font-weight:600}details .fields{margin-top:20px}.device{margin-top:22px}.device h3{font-size:14px;margin:0 0 16px}.checkbox{flex-direction:row;align-items:center;font-size:12px;font-weight:400}.dialog-footer{display:flex;justify-content:flex-end;align-items:center;gap:10px;border-top:1px solid var(--divider-color,#dde5de);padding:16px 26px}.danger{color:var(--error-color,#b4523d);margin-right:auto}.confirm{padding:24px}.confirm p{margin:16px 0 24px}.confirm-actions{display:flex;justify-content:flex-end;gap:10px}.saving{font-size:12px;color:var(--secondary-text-color,#69786e)}[hidden]{display:none!important}
         @media(max-width:650px){main{padding:24px 16px}.toolbar{padding:12px 16px;gap:8px}.version-label{display:none}.intro{align-items:flex-start}h1{font-size:26px}.intro p{font-size:13px}.intro button{white-space:nowrap;padding:9px 11px;font-size:12px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.dialog-body{padding:20px 18px}.dialog-header,.dialog-footer{padding:16px 18px}.wide{grid-column:auto}.version{font-size:11px}}
       </style>
-      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.2.0</span></header>
+      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.3.0</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
@@ -988,7 +1123,7 @@ class ThermoControlPanel extends HTMLElement {
     const master = create("div", undefined, "master"); master.innerHTML = `<label>Master-Sollwertverschiebung (°C)<input id="master-offset" type="range" min="-5" max="5" step="0.5" value="0"></label><output id="master-value">0 °C</output>`;
     overview.querySelector("#rooms").before(master);
     const groupCards = create("section", undefined, "group-cards"); groupCards.id = "group-cards"; groupCards.setAttribute("aria-label", "Gruppensteuerung"); master.after(groupCards);
-    for (const [id, title] of [["overview", "Übersicht"], ["graphs", "Verläufe & Analyse"], ["schedules", "Zeitpläne"], ["groups", "Thermostate & Gruppen"], ["settings", "Einstellungen"]]) {
+    for (const [id, title] of [["overview", "Übersicht"], ["pump", "Wärmepumpe"], ["graphs", "Verläufe & Analyse"], ["schedules", "Zeitpläne"], ["groups", "Thermostate & Gruppen"], ["settings", "Einstellungen"]]) {
       const button = create("button", title); button.type = "button"; button.id = `nav-${id}`; button.setAttribute("role", "tab"); button.setAttribute("aria-controls", `tab-${id}`); button.dataset.tab = id; button.onclick = () => this._switchTab(id); tabs.append(button);
       if (id !== "overview") { const section = create("section"); section.id = `tab-${id}`; section.setAttribute("role", "tabpanel"); main.insertBefore(section, main.querySelector(".footer")); }
       root.querySelector(`#tab-${id}`).setAttribute("aria-labelledby", button.id);
@@ -999,6 +1134,7 @@ class ThermoControlPanel extends HTMLElement {
       const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
       this._switchTab(buttons[next].dataset.tab); buttons[next].focus();
     };
+    const pumpEditor = document.createElement("thermo-control-heat-pump-editor"); root.querySelector("#tab-pump").append(pumpEditor);
     const scheduleEditor = document.createElement("thermo-control-schedule-editor"); root.querySelector("#tab-schedules").append(scheduleEditor);
     scheduleEditor.addEventListener("schedules-updated", (event) => this._receive({ ...this._data, ...event.detail }));
     const graph = root.querySelector("#tab-graphs"); graph.innerHTML = `<div class="analytics"><div class="chart-header"><div class="chart-top"><select id="graph-room" aria-label="Raum / Gruppe"></select><div id="graph-window" class="chart-segments" role="group" aria-label="Zeitfenster"><button type="button" data-hours="6" aria-pressed="false">6h</button><button type="button" data-hours="24" aria-pressed="true">24h</button><button type="button" data-hours="48" aria-pressed="false">48h</button></div></div><div class="chart-meta"><label class="flow-pill"><input id="graph-flow" type="checkbox" aria-label="Vorlauf"><span>Vorlauf</span></label><div class="legend" aria-label="Aktuelle Temperaturen"><span class="legend-current" style="--color:#287757">Ist<strong id="graph-current">—</strong></span><span style="--color:#c56a35">Soll<strong id="graph-target">—</strong></span><span id="graph-flow-legend" style="--color:#467eb2" hidden>Vorlauf<strong id="graph-flow-value">—</strong></span></div><details class="chart-info"><summary aria-label="Informationen zum Diagramm">?</summary><p>Orange Flächen zeigen gemeldete Heizphasen. Die Sollwertkurve zeigt waagerechte Abschnitte ohne senkrechte Verbindung zwischen Sollwerten. Unbekannte Zustände unterbrechen Kurven und Flächen. Vorlauf nutzt die rechte Temperaturskala. Daten stammen aus dem HA-Recorder; sie werden bei Auswahl und jede Minute neu geladen. Berühre den Graphen für Messwerte.</p></details></div></div><div class="chart-wrap"><svg id="history-chart" class="chart" role="img" tabindex="0" aria-label="Temperaturverlauf mit Heizphasen"></svg><div id="graph-tooltip" class="chart-tooltip" role="status" hidden></div></div><p id="graph-status" class="chart-status" role="status"></p></div>`;
@@ -1123,9 +1259,14 @@ class ThermoControlPanel extends HTMLElement {
   _updateSystem() {
     const root = this.shadowRoot; if (!root.querySelector("#system-bar")) return;
     this._updateGraphLegend();
+    const pumpEditor = root.querySelector("thermo-control-heat-pump-editor"); if (pumpEditor && this._data && this._hass) pumpEditor.context = { data: this._data, hass: this._hass };
     const status = this._data.system || {}, bar = root.querySelector("#system-bar"); bar.replaceChildren();
     const temperature = (value) => Number.isFinite(value) ? `${value.toLocaleString("de-DE", { maximumFractionDigits: 1 })} °C` : "—";
     for (const [name, value] of [["Vorlauf Ist / Soll", `${temperature(status.flow)} / ${temperature(status.target)}`], ["Verdichter", status.compressor === true ? "Aktiv" : status.compressor === false ? "Inaktiv" : "Unbekannt"], ["Modus", status.mode || "Nicht zugeordnet"], ["Hausbedarf / freigegeben", `${status.demand ?? 0} % / ${status.eligible_demand ?? 0} %`]]) {
+      const item = create("span", name); item.append(create("strong", value)); bar.append(item);
+    }
+    const pump = this._data.heat_pump;
+    if (pump) for (const [name, value] of [["Rücklauf", temperature(pump.return)], ["Warmwasser Ist / Soll", `${temperature(pump.dhw_temperature)} / ${temperature(pump.dhw_target)}`], ["Wärmepumpen-Steuerung", pump.enabled ? ({standard: "Standard", boost: "PV-Boost", blocked: "Blockiert", off: "Aus", disabled: "Deaktiviert"}[pump.channels?.heating?.profile] || "—") : "Deaktiviert"]]) {
       const item = create("span", name); item.append(create("strong", value)); bar.append(item);
     }
     const slider = root.querySelector("#master-offset"); if (root.activeElement !== slider) { slider.value = this._data.settings?.master_offset || 0; root.querySelector("#master-value").textContent = `${Number(slider.value).toLocaleString("de-DE")} °C`; }
@@ -1196,7 +1337,7 @@ class ThermoControlPanel extends HTMLElement {
     const root = this.shadowRoot, entityId = root.querySelector("#graph-room")?.value;
     if (!root.querySelector("#graph-current")) return;
     const state = this._hass?.states[entityId], a = state?.attributes || {}, valid = state && !["unknown", "unavailable"].includes(state.state);
-    const flowState = this._hass?.states[this._data.settings?.heat_pump.flow_sensor];
+    const flowState = this._hass?.states[this._data.settings?.heat_pump.flow_sensor || this._data.settings?.heat_pump_control?.flow_sensor];
     const display = (value) => value == null ? "—" : `${value.toFixed(1)}°`;
     root.querySelector("#graph-current").textContent = display(valid ? (Number.isFinite(a.current_temperature_celsius) ? a.current_temperature_celsius : this._chartCelsius(a.current_temperature)) : null);
     root.querySelector("#graph-target").textContent = display(valid ? (Number.isFinite(a.effective_target_temperature) ? a.effective_target_temperature : this._chartCelsius(a.temperature)) : null);
@@ -1218,7 +1359,7 @@ class ThermoControlPanel extends HTMLElement {
     root.querySelector("#graph-status").textContent = "Verlauf wird geladen …";
     if (!entityId) { root.querySelector("#graph-status").textContent = "Lege zuerst einen Raum an."; return; }
     const end = Date.now(), start = end - (this._graphHours || 24) * 3600000;
-    const flowId = root.querySelector("#graph-flow").checked ? this._data.settings.heat_pump.flow_sensor : null;
+    const flowId = root.querySelector("#graph-flow").checked ? this._data.settings.heat_pump.flow_sensor || this._data.settings.heat_pump_control?.flow_sensor : null;
     try {
       const history = await this._hass.callWS({ type: "history/history_during_period", start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: [entityId, flowId].filter(Boolean), significant_changes_only: false, minimal_response: false, no_attributes: false });
       if (generation !== this._historyGeneration || !this.isConnected) return;

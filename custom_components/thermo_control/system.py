@@ -46,7 +46,13 @@ class HeatingSystem:
         config = self.manager.settings["heat_pump"]
 
         def state(key):
-            value = self.manager.hass.states.get(config[key]) if config[key] else None
+            entity_id = config[key]
+            if not entity_id and key in ("flow_sensor", "mode_entity"):
+                pump = self.manager.settings["heat_pump_control"]
+                entity_id = (
+                    pump["flow_sensor"] if key == "flow_sensor" else pump["heating"]["entity"]
+                )
+            value = self.manager.hass.states.get(entity_id) if entity_id else None
             return (
                 value if value and value.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE) else None
             )
@@ -54,6 +60,8 @@ class HeatingSystem:
         mode, compressor = state("mode_entity"), state("compressor_entity")
         mode_value = mode.state if mode else None
         automatic = mode_value.casefold() in config["automatic_states"] if mode_value else None
+        if not config["mode_entity"] and mode_value:
+            automatic = mode_value in ("heat", "auto")
         flow = state_temperature(state("flow_sensor"))
         target = state_temperature(state("target_sensor"))
         compressor_on = (

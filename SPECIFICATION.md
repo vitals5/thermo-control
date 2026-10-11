@@ -1,4 +1,4 @@
-# Thermo Control 2.2.0 – Regelung und Panel
+# Thermo Control 2.3.0 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -87,7 +87,7 @@ Climate-Attribute: schedule_active, schedule_available, schedule_key, scheduled_
 
 ## Alpha Innotec WWC 100 H/X / Luxtronik
 
-Thermo Control verwendet die bereits von einer HACS-Luxtronik-Integration veröffentlichten HA-Entitäten. Es öffnet keine zweite Verbindung zur Wärmepumpe und setzt keine modellabhängigen Luxtronik-Register voraus. Tatsächliche Entitätsnamen hängen von Integration, Firmware und Installation ab; alle Zuordnungen sind im Tab Einstellungen durchsuchbar.
+Thermo Control verwendet die bereits von einer HACS-Luxtronik-Integration veröffentlichten HA-Entitäten. Es öffnet keine zweite Verbindung zur Wärmepumpe und setzt keine modellabhängigen Luxtronik-Register voraus. Tatsächliche Entitätsnamen hängen von Integration, Firmware und Installation ab; alle Zuordnungen sind in den Tabs Wärmepumpe und Einstellungen durchsuchbar.
 
 | Zuordnung | Erlaubte Entität | Bedeutung |
 | --- | --- | --- |
@@ -104,7 +104,7 @@ Die optionale Freigabe ist standardmäßig deaktiviert. Sie benötigt Vorlauf-Is
 - der Vorlauf bekannt und mindestens so warm wie der konfigurierte Grenzwert ist (Standard 25 °C);
 - der Vorlauf mindestens `Raumtemperatur + Wärmeabstand` erreicht (Standard 2 °C).
 
-Ein ausgewählter, ausgefallener Sensor führt zu gesperrter Freigabe. Der Verdichter muss für warme Restwärme nicht gerade laufen. Die Ziel-Vorlauftemperatur wird zur Diagnose angezeigt; sie wird nicht mit der Isttemperatur gleichgesetzt. Auf Warmwasserbereitung oder Verdichterregister wird nicht geschrieben.
+Ein ausgewählter, ausgefallener Sensor führt zu gesperrter Freigabe. Der Verdichter muss für warme Restwärme nicht gerade laufen. Die Ziel-Vorlauftemperatur wird zur Diagnose angezeigt; sie wird nicht mit der Isttemperatur gleichgesetzt. Diese Wärmefreigabe liest nur Zustände. Die getrennte optionale Wärmepumpensteuerung schreibt die weiter unten beschriebenen Sollwerte und Betriebsmodi.
 
 Systembedarf wird ausschließlich aus Räumen berechnet, damit Gruppen nicht doppelt zählen. Das Haus-Bedarfssignal ist der höchste Raumanteil, der mittlere Raumanteil steht zusätzlich als Attribut bereit. Alle Räume ohne Bedarf → 0 %.
 
@@ -112,7 +112,34 @@ Systembedarf wird ausschließlich aus Räumen berechnet, damit Gruppen nicht dop
 - **Thermo Control Freigegebener Wärmebedarf:** höchster Anteil eines aktuell freigegebenen Raums.
 - Attribute: Vorlauf Ist/Soll, Modus, Automatik erkannt, Verdichterstatus, Anzahl bedürftiger/heizender Räume, `heat_requested` und mittlerer Bedarf.
 
-Diese Sensoren ermöglichen die Kopplung mit bestehenden Automationen. Thermo Control stellt keine direkte Verdichteranforderung, verändert keine Heizkurve und kontrolliert keine Mindestdurchflussmenge. Die konfigurierten Mindestlauf-/Ruhezeiten betreffen die Raumventile; der Verdichterschutz bleibt beim Luxtronik-Controller. Ein externer Startpfad darf den ungefilterten Bedarf nutzen, während die Raumfreigabe auf tatsächliche Vorlaufwärme wartet.
+Diese Sensoren ermöglichen die Kopplung mit bestehenden Automationen. Thermo Control stellt keine direkte Verdichteranforderung und kontrolliert keine Mindestdurchflussmenge. Bei aktivierter Wärmepumpensteuerung werden Heizkurve und Sollwerte anhand von PV-Signal und Sperrzeiten gesetzt. Die konfigurierten Mindestlauf-/Ruhezeiten betreffen die Raumventile; der Verdichterschutz bleibt beim Luxtronik-Controller. Ein externer Startpfad darf den ungefilterten Bedarf nutzen, während die Raumfreigabe auf tatsächliche Vorlaufwärme wartet.
+
+## Wärmepumpen-Schaltzentrale · PV und Sperrzeiten
+
+Im Tab **Wärmepumpe** werden Heizung und Warmwasser der Alpha Innotec WWC 100 H/X über die vorhandenen HACS-Luxtronik-Entitäten gesteuert. Die Funktion ist zunächst deaktiviert. Unter **Entitäten zuordnen** sind die angegebenen Luxtronik-IDs und `input_boolean.wp_laden_evcc` bereits vorbelegt; alle Felder bieten Live-Suche und Zustandsvorschau. Zuordnungen und Geräte-Grenzen prüfen, Profile einstellen und **Wärmepumpensteuerung aktivieren** speichern. Raumregelung und Raumzeitpläne bleiben separat erhalten.
+
+| Zielwert in °C | Standard | PV-Boost | Blockierung |
+| --- | ---: | ---: | ---: |
+| Warmwasser | 42 | 55 | 30 |
+| Heizkurven-Endpunkt Heizkreis | 32 | 50 | 20 |
+| Heizkurven-Parallelverschiebung Heizkreis | 21 | 30 | 15 |
+| Heizzielkorrektur | 0 | +5 | −5 |
+
+Dies sind editierbare Beispielwerte, keine berechnete Heizkurve für die Anlage. Endpunkt und Parallelverschiebung können unabhängig angepasst werden; die tatsächlichen Grenzen und Schrittweiten der Geräte gelten zusätzlich. Der Heizkreis ist rücklaufgeführt; Rücklauf (`flow_out_temperature`), Vorlauf (`flow_in_temperature`) und der vorlaufgeführte Mischkreis werden getrennt angezeigt.
+
+Heizung und Warmwasser haben **getrennte Wochen-Sperrzeitpläne**. Im visuellen 24h-Editor den Kanal und Einzeltage, Mo–Fr, Sa–So oder Mo–So wählen. Die Vorlage **22:00–10:00** sperrt über Mitternacht; eigene Blöcke lassen sich antippen, ändern, hinzufügen, löschen und auf ausgewählte Tage oder den anderen Kanal kopieren. Überlappungen werden auch über Tages- und Wochengrenzen abgewiesen. Pläne verwenden die Home-Assistant-Zeitzone und werden mindestens minütlich geprüft; die doppelte Stunde bei Winterzeit bleibt durchgehend im gleichen örtlichen Sperrfenster.
+
+Außerhalb einer Sperrzeit gilt Standard; mit aktivem EVCC-Ladesignal gilt nach der PV-Verzögerung Boost. Standardmäßig hat die Zeitblockierung Vorrang; **PV-Boost vor Zeitblockierung** ist auswählbar. Vorgaben: 180 Sekunden PV-Verzögerung und 600 Sekunden Mindesthaltezeit zwischen Standard/Boost, jeweils einstellbar. Sperrzeiten und explizites **Aus** greifen sofort; ein fehlendes PV-Signal fällt ohne Boost-Haltezeit auf Standard bzw. Blockierung zurück. Heizung und Warmwasser können einzeln aus der automatischen Steuerung genommen werden.
+
+**Blockierung über Sollwerte ist eine Absenkung:** Bei ausreichend kalter Anlage kann Luxtronik weiterhin heizen. Für gezieltes Abschalten des Heizkreises **Heizung im Sperrzeitfenster → Zusätzlich Heizungsmodus Aus** wählen. Warmwasser bleibt über seinen konfigurierten Sollwert gesteuert. Interne Frostschutz-, Warmwasser- und Verdichterschutzfunktionen übernimmt weiterhin Luxtronik; Thermo Control bestätigt keinen garantierten Verdichterstopp.
+
+Luxtronik-Automatik wird je nach Climate-Variante in HA als `heat` oder `auto` bereitgestellt. Die Einstellung **Automatik in HA** muss zu den angebotenen Modi passen. Die Heizungs-Climate muss die ±5-°C-Heizzielkorrektur bereitstellen. Bei einer Variante mit Raum-Sollwert stattdessen eine entsprechende Korrektur-Number zuordnen; Thermo Control schreibt dort keine vermeintliche ±5-°C-Raumtemperatur. Warmwasser verwendet `water_heater.set_temperature` und optional `set_operation_mode` (`heat_pump`, unverändert oder Performance/Party). PV-Boost entsteht durch die Sollwerte; das native Heizungs-Preset `boost` wird nicht aufgerufen, weil es in Luxtronik eine andere Bedeutung haben kann. Schnittstelle: [Luxtronik Climate](https://github.com/BenPru/luxtronik/blob/main/custom_components/luxtronik2/climate.py), [Luxtronik Warmwasser](https://github.com/BenPru/luxtronik/blob/main/custom_components/luxtronik2/water_heater.py).
+
+Die **Mischkreis-Heizkurve** wird ausschließlich über **Mischkreis-Heizkurve setzen** manuell geändert. PV und Sperrzeiten überschreiben ihre Werte nicht. Konkurrierende Raum-/Wärmepumpen-Steuerung und doppelte schreibbare Zuordnungen werden verhindert.
+
+Neue Sensoren **Thermo Control Wärmepumpe Heizung** und **… Warmwasser** melden `standard`, `boost`, `blocked`, `off` bzw. `disabled`, einschließlich Fehlern, PV-Zustand und ausstehender Geräte-Rückmeldung. Fehlende Entitäten, ungültige Grenzen/Schrittweiten oder nicht unterstützte Betriebsmodi stoppen die Befehle des betroffenen Kanals; der andere Kanal arbeitet unabhängig weiter. Service-Aufrufe sind zeitlich begrenzt; derselbe unbestätigte Befehl wird frühestens nach 60 Sekunden wiederholt. Die Steuerung behält die zugeordneten Zielwerte während ihrer Aktivierung unter eigener Kontrolle.
+
+Konfiguration und Zeitpläne liegen in `.storage/thermo_control.rooms`; aktive Profile, Schreibzeitpunkte und ursprüngliche Werte in `.storage/thermo_control.heat_pump`. Ein Neustart erhält die Steuerung. Beim Deaktivieren oder Entfernen einer gesteuerten Zuordnung werden die vor dem ersten Eingriff gespeicherten Ausgangswerte zurückgesetzt. Ist ein Gerät nicht erreichbar, bleibt die Rücksetzung sichtbar ausstehend und wird erneut versucht. Manuell gesetzte Mischkreiswerte werden dabei nicht zurückgesetzt.
 
 ## Panel-Tabs
 
@@ -120,7 +147,8 @@ Diese Sensoren ermöglichen die Kopplung mit bestehenden Automationen. Thermo Co
 2. **Verläufe & Analyse:** Kompakte zweizeilige Kopfleiste mit Raum-/Gruppen-Pill, 6h-/24h-/48h-Segmenten, Vorlauf-Toggle und aktuellen Celsiuswerten als Punkt-Legende. Details zum Recorder stehen hinter einem Info-Icon. Das lokale SVG-Diagramm nutzt die Kartenbreite und eine Höhe von `clamp(320px, 45vh, 420px)`. Die linke Raumskala umfasst Min(Ist, Soll) −0,5 °C bis Max(Ist, Soll) +0,5 °C; optionaler Vorlauf erhält eine unabhängige rechte Skala. Achsenschrift bleibt 12 px, die X-Achse zeigt vier Zeitpunkte auf Mobile und fünf auf Desktop in der HA-Zeitzone. Die Sollwertkurve besteht aus getrennten waagerechten Abschnitten bis zum nächsten aufgezeichneten Wechsel, ohne vertikale Verbindungen. Gleiche benachbarte Sollwerte werden zusammengefasst; Meldungen ohne Zeitdauer beeinflussen weder Kurve noch Skala. Reale Sollwertphasen werden unabhängig von ihrer Dauer erhalten, einschließlich Frostschutzwerten. Tooltip-Werte stammen weiterhin aus der unveränderten Historie. Gemeldete `heating`-Phasen sind vollflächige orange Hintergrundbänder, `idle`/`off` bleiben neutral. Unbekannte Zustände unterbrechen Kurven und Flächen. Pointer-/Touch-Tooltip mit vertikaler Linie zeigt Zeit, Ist/Soll, Status, vorhandene `valve_position` und optional Vorlauf als zuletzt gemeldete Werte, ohne erfundene Interpolation. Das Diagramm lädt dynamisch bei Auswahl und minütlich; ResizeObserver passt seine tatsächliche Geometrie an und wird beim Entfernen des Panels abgemeldet. History/Recorder liefert attributgenaue Daten; fehlende Daten und Fehler werden kompakt angezeigt. Gruppenwerte stammen aus ihrer virtuellen Climate-Entität. Keine CDN-Abhängigkeit oder zusätzliche Chart-Bibliothek.
 3. **Zeitpläne:** Responsive Web Component `thermo-control-schedule-editor` in der lokalen Panel-JS-Datei, Raum-/Gruppenauswahl, Tagesgruppen und Einzeltage, farbiger 24h-Balken mit antippbaren Blöcken, zusätzliche große Blockbuttons, Start-/Endzeit- und Sollwertbearbeitung, Vorlagen, Aktivierung, Fallback, Override-Dauer und Vorheizparameter. Kopierdialog für Tages- und Wochenpläne. Entwürfe und offene Bearbeitungen bleiben bei Telemetrie und Fehlern erhalten; konkurrierende Planänderungen werden erkannt. Kalendersymbol und Status auf den Raumkacheln.
 4. **Thermostate & Gruppen:** Selektor-Matrix zur Gruppenzuordnung; Raumeditor für Multi-Thermostat-Kopplung, Etage, Heizungsart, Sensor und Kontakte. Gruppen können eigene vollständige FBH-Parameter bekommen. Eine noch zugewiesene Gruppe kann nicht gelöscht werden.
-5. **Einstellungen:** Luxtronik-Entitätszuordnung und Automatik-Aliase, Wärmefreigabe und Vorlaufgrenzen, globale FBH- und Kalibrierungsparameter, Mindestlauf-/Ruhezeiten.
+5. **Wärmepumpe:** Responsive lokale Web Component `thermo-control-heat-pump-editor`, Telemetrie des Rücklauf-/Vorlauf-Heizkreises, unabhängige Heizungs-/Warmwasser-Profile und Betriebsarten, editierbare Entitäten, Wochen-Sperrzeiten samt 24h-Editor und manuelle Mischkreis-Heizkurve. Entwürfe überleben Telemetrie und Speicherfehler; Revisionskonflikte werden angezeigt.
+6. **Einstellungen:** Luxtronik-Entitätszuordnung und Automatik-Aliase, Wärmefreigabe und Vorlaufgrenzen, globale FBH- und Kalibrierungsparameter, Mindestlauf-/Ruhezeiten.
 
 Tabs sind per Tastatur erreichbar, mobile Ansichten sind geprüft. Entitätsfelder behalten Texteingabe, Live-Suche und Zustandsvorschau. Telemetrie aktualisiert laufende Felder ohne Fokusverlust. Das Panel und alle schreibenden WebSocket-Kommandos sind auf HA-Administratoren beschränkt.
 
@@ -130,7 +158,9 @@ Die gemeinsame Toolbar verwendet das lokale Thermo-Control-Brand-Icon als 44-px-
 
 Bestehender Storage `.storage/thermo_control.rooms` erhält zusätzlich `settings`; vorhandene Daten ohne dieses Feld erhalten kompatible Defaults. Raum-IDs und bestehende Climate-Zuordnungen bleiben erhalten. Gruppen erhalten eigene stabile Unique IDs `group_<id>`. Raum- und Systemeinstellungen werden vor Laufzeitänderungen gespeichert und gegen eine gemeinsame Revision geprüft. Ein veralteter Editor erhält eine Konfliktmeldung, statt aktuelle Änderungen zu überschreiben.
 
-WebSocket-Kommandos: `thermo_control/rooms`, `subscribe`, `save_room`, `delete_room`, `save_settings`, `master_offset`, `get_schedules`, `save_schedule`, `copy_schedule`. Raum-/System-Dokumente werden serverseitig geprüft (endliche Zahlen, Parametergrenzen, Entitätsdomains, Temperatureinheiten, doppelte Zuweisungen, Gruppenzugehörigkeit).
+WebSocket-Kommandos: `thermo_control/rooms`, `subscribe`, `save_room`, `delete_room`, `save_settings`, `master_offset`, `set_mixed_curve`, `get_schedules`, `save_schedule`, `copy_schedule`. Raum-/System-Dokumente werden serverseitig geprüft (endliche Zahlen, Parametergrenzen, Entitätsdomains, Temperatureinheiten, doppelte Zuweisungen, Gruppenzugehörigkeit).
+
+`set_mixed_curve`: end/shift in °C und revision. Beide Number-Werte werden vor dem ersten Service-Aufruf gegen Gerätegrenzen und Schrittweiten geprüft. Admin-Rechte und eine aktuelle Konfigurationsrevision sind erforderlich.
 
 Zeitplan-API (Admin-Rechte, registriert in websocket.py):
 
@@ -142,7 +172,7 @@ Service: `thermo_control.set_master_offset`, Daten `{offset: -2}`; Benutzeraufru
 
 ## Validierung und praktische Grenzen
 
-Automatisierte Tests verwenden reale HA-Zustände, Timer, Config Entries, Entity Registry, Climate-/Sensor-Plattformen und authentifizierte WebSockets. Zeitreihentests prüfen Trend, Pre-Shutoff, Integralsättigung, lange PWM-Zyklen, Mindestzeiten und Neustarts. Playwright prüft die fünf Tabs, Zeitplaneditor, Kopien und Overrides, Live-Suche, Gruppenzuordnung, Expertenspeicherung, Historienkurven und mobile Layouts.
+Automatisierte Tests verwenden reale HA-Zustände, Timer, Config Entries, Entity Registry, Climate-/Sensor-Plattformen und authentifizierte WebSockets. Zeitreihentests prüfen Trend, Pre-Shutoff, Integralsättigung, lange PWM-Zyklen, Mindestzeiten und Neustarts. Playwright prüft die sechs Tabs, Zeitplaneditor, Kopien und Overrides, Live-Suche, Gruppenzuordnung, Expertenspeicherung, Historienkurven und mobile Layouts.
 
 Ein physischer Test an der WWC 100 H/X und ihren Heizkreisen ist in der Entwicklungsumgebung nicht möglich. Trendprognose und Standardwerte müssen deshalb an der realen Anlage anhand der aufgezeichneten Verläufe beurteilt und angepasst werden. Die Diagrammfenster setzen entsprechende Recorder-Aufbewahrung und eingeschlossene Entitäten voraus.
 

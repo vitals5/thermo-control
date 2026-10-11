@@ -5,9 +5,11 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.2.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.3.0`.
 
-Neu in **2.2.0**: Täglicher Ventil-Wartungszyklus für Wandthermostate/TRVs, auch bei virtuell ausgeschalteter Heizung. Unter **Einstellungen → Tägliche Ventilwartung** aktivieren (zunächst deaktiviert), Uhrzeit und Dauer wählen. Standard: 12:00 Uhr in der HA-Zeitzone, je 180 Sekunden am minimalen und maximalen Gerätesollwert, anschließend normale Regelung. Räume kommen nacheinander dran; im Raumeditor lassen sich einzelne Räume ausschließen. Für träge Stellantriebe muss die Dauer zur tatsächlichen Stellzeit passen. Sollwerte, Presets und Zeitpläne bleiben erhalten; Geräte-Auto wird ausgelassen, offene Fenster und Ausfälle unterbrechen den Zyklus. Die Wartung erzeugt keinen zusätzlichen Haus-Wärmebedarf.
+Neu in **2.3.0**: Eigene Wärmepumpen-Schaltzentrale mit Standard-, PV-Boost- und Blockierungsprofilen, getrennten Sperrzeitplänen für Heizung und Warmwasser und manuell einstellbarer Mischkreis-Heizkurve. Details und Aktivierung unten.
+
+Seit **2.2.0**: Täglicher Ventil-Wartungszyklus für Wandthermostate/TRVs, auch bei virtuell ausgeschalteter Heizung. Unter **Einstellungen → Tägliche Ventilwartung** aktivieren (zunächst deaktiviert), Uhrzeit und Dauer wählen. Standard: 12:00 Uhr in der HA-Zeitzone, je 180 Sekunden am minimalen und maximalen Gerätesollwert, anschließend normale Regelung. Räume kommen nacheinander dran; im Raumeditor lassen sich einzelne Räume ausschließen. Für träge Stellantriebe muss die Dauer zur tatsächlichen Stellzeit passen. Sollwerte, Presets und Zeitpläne bleiben erhalten; Geräte-Auto wird ausgelassen, offene Fenster und Ausfälle unterbrechen den Zyklus. Die Wartung erzeugt keinen zusätzlichen Haus-Wärmebedarf.
 
 Seit **2.1.5**: Heizmodus, Preset, Sollwert und manueller Rückkehrwert werden unabhängig von der Verfügbarkeit des Raums in Home Assistants zusätzlichen Wiederherstellungsdaten gespeichert. Ein Sensor- oder Thermostatausfall vor Neustart/Neuladen setzt **Heizen / Auto · Zeitplan** dadurch nicht mehr auf **Aus / Manuell** zurück. Bereits verlorene Einstellungen müssen einmal neu gesetzt werden.
 
@@ -27,15 +29,15 @@ Seit **2.0.3**: Heizpausen senken den Gerätesollwert auf Frostschutz ab und erh
 
 Seit **2.0.2**: Raum- und Gruppen-Stepper mit 0,5-°C-Schritten, sofortiger Sollwertvorschau und 400-ms-Debouncing. Das zweispaltige Raumraster und die volle Pill-Leiste mit mindestens 44 × 44 px großen Tasten funktionieren auch auf schmalen Displays.
 
-Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Verläufe & Analyse**, **Zeitpläne**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
+Neu in 2.0: vorausschauende FBH-Regelung mit PI/TPI und langen PWM-Zyklen, virtuelle Gruppen-Climates, globale Master-Sollwertverschiebung und Luxtronik-Wärmefreigabe. Das lokale Panel bietet **Übersicht**, **Wärmepumpe**, **Verläufe & Analyse**, **Zeitpläne**, **Thermostate & Gruppen** und **Einstellungen**. Die vollständige Regelungs-, Hardware- und API-Spezifikation steht in [SPECIFICATION.md](SPECIFICATION.md).
 
 Bestehende Räume bleiben bei ihrer bisherigen Thermostatregelung. Für Fußbodenheizung im Raumeditor **Heizungstyp → Fußbodenheizung** wählen. Globale FBH-Parameter und Luxtronik-Zuordnungen werden im Tab **Einstellungen** eingerichtet; eigene Raum- und Gruppenparameter sind optional. Gruppen erhalten Climate-Entitäten; Raumventile melden den tatsächlichen `hvac_action` ihrer Geräte.
 
-Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wärmebedarf** als Sensoren. Die optionale Freigabe erlaubt Raumventile nur im konfigurierten Automatikmodus und mit ausreichend warmem Vorlauf. Verdichter- und Warmwassersteuerung bleiben beim Luxtronik-Controller. Die Mindestlauf-/Ruhezeiten gelten für Raumventile. Für Diagramme müssen **History/Recorder** die Raum-/Gruppen-Climates und den Vorlaufsensor aufzeichnen; das Panel nutzt deren Historie ohne externe Bibliotheken.
+Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wärmebedarf** als Sensoren. Die optionale Freigabe erlaubt Raumventile nur im konfigurierten Automatikmodus und mit ausreichend warmem Vorlauf. Die optionale Wärmepumpensteuerung setzt Heizkurven- und Warmwasserziele; interne Regelung und Verdichterschutz bleiben beim Luxtronik-Controller. Die Mindestlauf-/Ruhezeiten gelten für Raumventile. Für Diagramme müssen **History/Recorder** die Raum-/Gruppen-Climates und den Vorlaufsensor aufzeichnen; das Panel nutzt deren Historie ohne externe Bibliotheken.
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.2.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.3.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -78,6 +80,33 @@ Raum-, Gruppen- und Systemeinstellungen werden in HA-Storage unter `.storage/the
 Vorhandene Config-Entry-Räume aus Version 1.0 werden einmalig mit ihren IDs und Einstellungen in den Panel-Speicher übernommen. Es wird dabei kein Flow aufgerufen. Bei mehreren alten Einträgen lädt einer das gemeinsame Panel; mindestens ein Eintrag muss aktiviert bleiben. Im Panel gelöschte Räume werden aus alten Einträgen nicht erneut importiert.
 
 Leere optionale Zuordnungen entfernen eine explizite Auswahl; anschließend ist automatische Geräteerkennung wieder möglich. Ein leerer Kalibrierungspfad ohne passende Number-Entität deaktiviert die Offset-Schreibvorgänge. Der Raumeditor erlaubt auch die Bearbeitung vorübergehend nicht verfügbarer Sensoren mit bekannter Temperatureinheit.
+
+## Wärmepumpen-Schaltzentrale · PV und Sperrzeiten
+
+Im Tab **Wärmepumpe** werden Heizung und Warmwasser der Alpha Innotec WWC 100 H/X über die vorhandenen HACS-Luxtronik-Entitäten gesteuert. Die Funktion ist zunächst deaktiviert. Unter **Entitäten zuordnen** sind die angegebenen Luxtronik-IDs und `input_boolean.wp_laden_evcc` bereits vorbelegt; alle Felder bieten Live-Suche und Zustandsvorschau. Zuordnungen und Geräte-Grenzen prüfen, Profile einstellen und **Wärmepumpensteuerung aktivieren** speichern. Raumregelung und Raumzeitpläne bleiben separat erhalten.
+
+| Zielwert in °C | Standard | PV-Boost | Blockierung |
+| --- | ---: | ---: | ---: |
+| Warmwasser | 42 | 55 | 30 |
+| Heizkurven-Endpunkt Heizkreis | 32 | 50 | 20 |
+| Heizkurven-Parallelverschiebung Heizkreis | 21 | 30 | 15 |
+| Heizzielkorrektur | 0 | +5 | −5 |
+
+Dies sind editierbare Beispielwerte, keine berechnete Heizkurve für die Anlage. Endpunkt und Parallelverschiebung können unabhängig angepasst werden; die tatsächlichen Grenzen und Schrittweiten der Geräte gelten zusätzlich. Der Heizkreis ist rücklaufgeführt; Rücklauf (`flow_out_temperature`), Vorlauf (`flow_in_temperature`) und der vorlaufgeführte Mischkreis werden getrennt angezeigt.
+
+Heizung und Warmwasser haben **getrennte Wochen-Sperrzeitpläne**. Im visuellen 24h-Editor den Kanal und Einzeltage, Mo–Fr, Sa–So oder Mo–So wählen. Die Vorlage **22:00–10:00** sperrt über Mitternacht; eigene Blöcke lassen sich antippen, ändern, hinzufügen, löschen und auf ausgewählte Tage oder den anderen Kanal kopieren. Überlappungen werden auch über Tages- und Wochengrenzen abgewiesen. Pläne verwenden die Home-Assistant-Zeitzone und werden mindestens minütlich geprüft; die doppelte Stunde bei Winterzeit bleibt durchgehend im gleichen örtlichen Sperrfenster.
+
+Außerhalb einer Sperrzeit gilt Standard; mit aktivem EVCC-Ladesignal gilt nach der PV-Verzögerung Boost. Standardmäßig hat die Zeitblockierung Vorrang; **PV-Boost vor Zeitblockierung** ist auswählbar. Vorgaben: 180 Sekunden PV-Verzögerung und 600 Sekunden Mindesthaltezeit zwischen Standard/Boost, jeweils einstellbar. Sperrzeiten und explizites **Aus** greifen sofort; ein fehlendes PV-Signal fällt ohne Boost-Haltezeit auf Standard bzw. Blockierung zurück. Heizung und Warmwasser können einzeln aus der automatischen Steuerung genommen werden.
+
+**Blockierung über Sollwerte ist eine Absenkung:** Bei ausreichend kalter Anlage kann Luxtronik weiterhin heizen. Für gezieltes Abschalten des Heizkreises **Heizung im Sperrzeitfenster → Zusätzlich Heizungsmodus Aus** wählen. Warmwasser bleibt über seinen konfigurierten Sollwert gesteuert. Interne Frostschutz-, Warmwasser- und Verdichterschutzfunktionen übernimmt weiterhin Luxtronik; Thermo Control bestätigt keinen garantierten Verdichterstopp.
+
+Luxtronik-Automatik wird je nach Climate-Variante in HA als `heat` oder `auto` bereitgestellt. Die Einstellung **Automatik in HA** muss zu den angebotenen Modi passen. Die Heizungs-Climate muss die ±5-°C-Heizzielkorrektur bereitstellen. Bei einer Variante mit Raum-Sollwert stattdessen eine entsprechende Korrektur-Number zuordnen; Thermo Control schreibt dort keine vermeintliche ±5-°C-Raumtemperatur. Warmwasser verwendet `water_heater.set_temperature` und optional `set_operation_mode` (`heat_pump`, unverändert oder Performance/Party). PV-Boost entsteht durch die Sollwerte; das native Heizungs-Preset `boost` wird nicht aufgerufen, weil es in Luxtronik eine andere Bedeutung haben kann. Schnittstelle: [Luxtronik Climate](https://github.com/BenPru/luxtronik/blob/main/custom_components/luxtronik2/climate.py), [Luxtronik Warmwasser](https://github.com/BenPru/luxtronik/blob/main/custom_components/luxtronik2/water_heater.py).
+
+Die **Mischkreis-Heizkurve** wird ausschließlich über **Mischkreis-Heizkurve setzen** manuell geändert. PV und Sperrzeiten überschreiben ihre Werte nicht. Konkurrierende Raum-/Wärmepumpen-Steuerung und doppelte schreibbare Zuordnungen werden verhindert.
+
+Neue Sensoren **Thermo Control Wärmepumpe Heizung** und **… Warmwasser** melden `standard`, `boost`, `blocked`, `off` bzw. `disabled`, einschließlich Fehlern, PV-Zustand und ausstehender Geräte-Rückmeldung. Fehlende Entitäten, ungültige Grenzen/Schrittweiten oder nicht unterstützte Betriebsmodi stoppen die Befehle des betroffenen Kanals; der andere Kanal arbeitet unabhängig weiter. Service-Aufrufe sind zeitlich begrenzt; derselbe unbestätigte Befehl wird frühestens nach 60 Sekunden wiederholt. Die Steuerung behält die zugeordneten Zielwerte während ihrer Aktivierung unter eigener Kontrolle.
+
+Konfiguration und Zeitpläne liegen in `.storage/thermo_control.rooms`; aktive Profile, Schreibzeitpunkte und ursprüngliche Werte in `.storage/thermo_control.heat_pump`. Ein Neustart erhält die Steuerung. Beim Deaktivieren oder Entfernen einer gesteuerten Zuordnung werden die vor dem ersten Eingriff gespeicherten Ausgangswerte zurückgesetzt. Ist ein Gerät nicht erreichbar, bleibt die Rücksetzung sichtbar ausstehend und wird erneut versucht. Manuell gesetzte Mischkreiswerte werden dabei nicht zurückgesetzt.
 
 ## Hardware und Fähigkeiten
 
