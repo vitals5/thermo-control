@@ -1128,6 +1128,168 @@ async function analyticsFixture(page) {
   await expect(page.locator("#history-chart .room-curve")).toHaveCount(2);
 }
 
+async function compressorFixture(page, phases = [[-3600, "on"], [21600, "off"], [43200, "on"], [64800, "off"]]) {
+  await analyticsFixture(page);
+  await page.evaluate((phases) => {
+    const settings = structuredClone(window.panel._data.settings), start = Date.now() / 1000 - 86400;
+    settings.heat_pump.compressor_entity = "binary_sensor.house_pump_running";
+    window.historyData[settings.heat_pump.compressor_entity] = phases.map(([offset, state]) => ({ s: state, lu: start + offset }));
+    window.updateEntity(settings.heat_pump.compressor_entity, { state: "on", attributes: {} });
+    window.updateSnapshot({ settings });
+  }, phases);
+  await expect(page.locator("#history-chart .compressor-axis")).toHaveText(["1", "0"]);
+}
+
+async function inspectChart(page, fraction, dual = false) {
+  const chart = page.locator("#history-chart");
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox(), x = box.x + 44 + (box.width - (dual ? 88 : 52)) * fraction, y = box.y + box.height - 50;
+  await chart.dispatchEvent("pointerdown", { clientX: x, clientY: y, pointerType: "touch", pointerId: 1 });
+  return { box, x, y };
+}
+
+test("configured compressor requests recorded states and draws precise on/off phases in every time range", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page);
+  const curve = page.locator("#history-chart .compressor-curve");
+  await expect(curve).toHaveCount(1);
+  await expect(page.locator("#history-chart .compressor-band")).toHaveCount(2);
+  const geometry = await page.evaluate(() => {
+    const svg = window.panel.shadowRoot.querySelector("#history-chart"), bands = [...svg.querySelectorAll(".compressor-band")];
+    return { width: svg.viewBox.baseVal.width, bands: bands.map((node) => ({x: Number(node.getAttribute("x")), width: Number(node.getAttribute("width"))})), path: svg.querySelector(".compressor-curve").getAttribute("d") };
+  });
+  expect(geometry.bands[0].x).toBe(44);
+  for (const band of geometry.bands) expect(band.width).toBeCloseTo((geometry.width - 52) / 4, 3);
+  expect((geometry.path.match(/ V/g) || []).length).toBe(3);
+  await inspectChart(page, 0.1);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
+  await inspectChart(page, 0.3);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Aus");
+  for (const label of ["6h", "48h", "24h"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    const request = await page.evaluate(() => window.messages.filter((item) => item.type === "history/history_during_period").at(-1));
+    expect(request.entity_ids).toEqual(["climate.living", "binary_sensor.house_pump_running"]);
+    expect(request.minimal_response).toBe(false);
+    expect(request.significant_changes_only).toBe(false);
+    expect(Date.parse(request.end_time) - Date.parse(request.start_time)).toBe(Number(label.slice(0, -1)) * 3600000);
+  }
+});
+
+test("unknown compressor states leave gaps and simultaneous or repeated reports do not create fake runs", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page, [[0, "off"], [3600, "on"], [7200, "on"], [10800, "off"], [14400, "on"], [14400, "off"], [18000, "unavailable"], [21600, "on"], [25200, "unknown"], [28800, "heating"], [32400, "off"]]);
+  await expect(page.locator("#history-chart .compressor-band")).toHaveCount(2);
+  const path = await page.locator("#history-chart .compressor-curve").getAttribute("d");
+  expect((path.match(/ M/g) || []).length).toBe(3);
+  expect((path.match(/ V/g) || []).length).toBe(2);
+  await inspectChart(page, 15000 / 86400);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Aus");
+  for (const offset of [19000, 26000, 30000]) {
+    await inspectChart(page, offset / 86400);
+    await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Unbekannt");
+  }
+  await inspectChart(page, 23000 / 86400);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
+});
+
+test("missing initial compressor state is not extended backwards and live state never substitutes history", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page, [[21600, "off"], [43200, "on"]]);
+  const path = await page.locator("#history-chart .compressor-curve").getAttribute("d");
+  await inspectChart(page, 0.1);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Unbekannt");
+  await inspectChart(page, 0.3);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Aus");
+  await expect(page.locator(".compressor-live")).toHaveText("Verdichter · aktuell An");
+  await page.evaluate(() => window.updateEntity("binary_sensor.house_pump_running", {state: "off", attributes: {}}));
+  await expect(page.locator(".compressor-live")).toHaveText("Verdichter · aktuell Aus");
+  await expect(page.locator("#history-chart .compressor-curve")).toHaveAttribute("d", path);
+  await inspectChart(page, 0.7);
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
+});
+
+for (const width of [320, 390]) {
+  test(`compressor adds its own height and preserves room and flow scales on a ${width}px touch screen`, async ({ page }) => {
+    await page.setViewportSize({width, height: 844});
+    await pauseClock(page);
+    await analyticsFixture(page);
+    await page.getByRole("checkbox", {name: "Vorlauf", exact: true}).check();
+    const before = await page.evaluate(() => {
+      const svg = window.panel.shadowRoot.querySelector("#history-chart");
+      return {height: svg.getBoundingClientRect().height, paths: [...svg.querySelectorAll(".temperature-curve")].map((node) => node.getAttribute("d"))};
+    });
+    await page.evaluate(() => {
+      const settings = structuredClone(window.panel._data.settings), start = Date.now() / 1000 - 86400;
+      settings.heat_pump.compressor_entity = "binary_sensor.house_pump_running";
+      window.historyData[settings.heat_pump.compressor_entity] = [{state: "off", last_changed: new Date((start - 100) * 1000).toISOString()}, {state: "on", last_updated: new Date((start + 21600) * 1000).toISOString()}];
+      window.updateSnapshot({settings});
+    });
+    const chart = page.locator("#history-chart");
+    await expect(chart.locator(".compressor-band")).toHaveCount(1);
+    await expect(chart).toHaveAttribute("data-room-low", "20.5");
+    await expect(chart).toHaveAttribute("data-room-high", "21.7");
+    await expect(chart).toHaveAttribute("data-flow-low", "28.5");
+    await expect(chart).toHaveAttribute("data-flow-high", "35.5");
+    const after = await page.evaluate(() => {
+      const root = window.panel.shadowRoot, svg = root.querySelector("#history-chart");
+      return {height: svg.getBoundingClientRect().height, paths: [...svg.querySelectorAll(".temperature-curve")].map((node) => node.getAttribute("d")), overflow: root.querySelector("main").scrollWidth > root.querySelector("main").clientWidth};
+    });
+    expect(after.height - before.height).toBeCloseTo(76, 1);
+    expect(after.paths).toEqual(before.paths);
+    expect(after.overflow).toBe(false);
+    const {box, y} = await inspectChart(page, 0.3, true);
+    await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
+    await expect(page.locator("#graph-tooltip")).toContainText("Vorlauf: 29.0 °C");
+    const tip = await page.locator("#graph-tooltip").boundingBox();
+    expect(tip.y + tip.height).toBeLessThan(y);
+    expect(tip.x).toBeGreaterThanOrEqual(box.x);
+    expect(tip.x + tip.width).toBeLessThanOrEqual(box.x + box.width);
+    if (width === 390) await page.locator(".analytics").screenshot({path: "dist/thermo-control-compressor-mobile.png"});
+  });
+}
+
+test("compressor-only history remains visible and absent or invalid states never invent an off phase", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page);
+  await page.evaluate(() => {
+    delete window.historyData["climate.living"];
+    delete window.historyData["sensor.flow"];
+    window.panel._loadHistory();
+  });
+  await expect(page.locator("#history-chart .compressor-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .temperature-curve")).toHaveCount(0);
+  await expect(page.locator("#graph-status")).toHaveText("Keine Raum-Messwerte im gewählten Zeitraum.");
+  for (const states of [[], [{s: "unavailable", lc: 0}], [{s: "on", lu: "invalid"}], [{s: "on", lu: Date.now() / 1000 + 86400}]]) {
+    await page.evaluate((states) => {window.historyData["binary_sensor.house_pump_running"] = states; window.panel._loadHistory();}, states);
+    await expect(page.locator("#graph-status")).toContainText("Keine Verdichter-Zustände im gewählten Zeitraum.");
+    await expect(page.locator("#history-chart .compressor-curve")).toHaveCount(0);
+    await expect(page.locator("#history-chart .compressor-band")).toHaveCount(0);
+    await inspectChart(page, 0.5);
+    await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: Unbekannt");
+  }
+});
+
+test("changing or removing a compressor mapping reloads history and rejects late previous sources", async ({ page }) => {
+  await compressorFixture(page);
+  await page.evaluate(() => {
+    const old = window.panel.hass.callWS;
+    window.pendingCompressor = [];
+    window.panel.hass.callWS = (message) => message.type === "history/history_during_period" ? new Promise((resolve) => window.pendingCompressor.push({message, resolve})) : old(message);
+    const settings = structuredClone(window.panel._data.settings);
+    settings.heat_pump.compressor_entity = "binary_sensor.replacement";
+    window.updateSnapshot({settings});
+    const removed = structuredClone(settings); removed.heat_pump.compressor_entity = null;
+    window.updateSnapshot({settings: removed});
+  });
+  const requests = await page.evaluate(() => window.pendingCompressor.map((item) => item.message.entity_ids));
+  expect(requests).toEqual([["climate.living", "binary_sensor.replacement"], ["climate.living"]]);
+  await page.evaluate(() => {window.pendingCompressor[1].resolve(window.historyData); window.pendingCompressor[0].resolve({...window.historyData, "binary_sensor.replacement": [{s: "on", lu: Date.now() / 1000 - 60}]});});
+  await expect(page.locator("#history-chart .room-curve")).toHaveCount(2);
+  await expect(page.locator("#history-chart .compressor-axis")).toHaveCount(0);
+  await expect(page.locator("#history-chart .compressor-curve")).toHaveCount(0);
+  await expect(page.locator("#history-chart")).not.toHaveClass(/has-compressor/);
+});
+
 test("mobile analytics fills height with readable axes, compact header and touch tooltip", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await analyticsFixture(page);

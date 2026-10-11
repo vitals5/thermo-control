@@ -1,4 +1,4 @@
-# Thermo Control 2.3.1 – Regelung und Panel
+# Thermo Control 2.3.2 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -153,6 +153,12 @@ Konfiguration und Zeitpläne liegen in `.storage/thermo_control.rooms`; aktive P
 Tabs sind per Tastatur erreichbar, mobile Ansichten sind geprüft. Entitätsfelder behalten Texteingabe, Live-Suche und Zustandsvorschau. Telemetrie aktualisiert laufende Felder ohne Fokusverlust. Das Panel und alle schreibenden WebSocket-Kommandos sind auf HA-Administratoren beschränkt.
 
 Die gemeinsame Toolbar verwendet das lokale Thermo-Control-Brand-Icon als 44-px-Seitenleistenbutton und löst `hass-toggle-menu` aus. Bei exakt `back=1` in der URL erscheint daneben ein 44-px-Zurück-Button. Er verwendet bei HA-internem `history.state.from` den Browser-Rücksprung; ohne solchen Vorgänger ersetzt er den aktuellen Eintrag durch `/` und meldet `location-changed` an den HA-Router. URL-/Route-Änderungen aktualisieren die Sichtbarkeit. Globale Listener werden beim Entfernen des Panels abgemeldet. Andere Tabs zeigen keine Heizungswertekarte.
+
+## Verdichter-Historie
+
+Die unter **Einstellungen → Verdichterstatus** frei zugeordnete `binary_sensor`-Entität erscheint automatisch in **Verläufe & Analyse** als eigene violette digitale Spur unter den Temperaturkurven: **1 = An**, **0 = Aus**. Laufphasen sind zusätzlich hinterlegt; Temperatur- und Vorlaufskalen bleiben unabhängig. Die Diagrammhöhe wächst um 76 px, damit die Temperaturkurven auch mobil ihre bisherige Höhe behalten. Der gemeinsame Touch-Tooltip zeigt den aufgezeichneten Verdichterzustand zum gewählten Zeitpunkt. Fehlende, unbekannte oder nicht verfügbare Zustände werden als Lücken behandelt. Die Spur verwendet die tatsächliche Verdichter-Historie aus HA-Recorder, einschließlich des Ausgangszustands am Beginn des Zeitfensters; sie wird nicht aus Raum-Heizbedarf oder `hvac_action` abgeleitet. Auch die Verdichter-Entität muss vom Recorder aufgezeichnet werden.
+
+Die digitale Spur übernimmt ausschließlich `on`/`off`. Ohne aufgezeichneten Zustand bleibt der Abschnitt unbekannt; gleichzeitige Meldungen ohne Dauer erzeugen keine fiktive Laufphase. Gleichbleibende benachbarte Zustände werden zusammengefasst. Ein bereits vor dem ausgewählten Zeitraum gemeldeter Anfangszustand wird bis zum ersten tatsächlichen Wechsel gehalten. Die aktuelle HA-Rückmeldung steht getrennt als „aktuell“ im Spurkopf und überschreibt keine historischen Messwerte. Bei geänderter Verdichter-Zuordnung wird der aktive Graph unmittelbar neu geladen; verspätete Antworten dürfen die neue Auswahl nicht ersetzen.
 
 ## Persistenz und API
 
