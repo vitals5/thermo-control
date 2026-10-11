@@ -1,4 +1,4 @@
-"""PV and scheduled Luxtronik targets; no direct compressor or auxiliary-heat control."""
+"""PV and scheduled heat-pump targets via configurable HA entities."""
 
 from __future__ import annotations
 
@@ -87,6 +87,9 @@ def validate_pump_control(hass, config, *, check_entities=True):
             result[key].update(deepcopy(value))
         else:
             result[key] = deepcopy(value)
+    if not isinstance(result["name"], str) or not 1 <= len(result["name"].strip()) <= 80:
+        raise ServiceValidationError("Wärmepumpenname muss 1 bis 80 Zeichen enthalten.")
+    result["name"] = result["name"].strip()
     if any(type(result[key]) is not bool for key in ("enabled",)) or any(
         type(result[channel]["enabled"]) is not bool for channel in CHANNELS
     ):
@@ -102,19 +105,18 @@ def validate_pump_control(hass, config, *, check_entities=True):
             raise ServiceValidationError("Ungültige Verzögerung / Mindesthaltezeit.")
         result[key] = int(value)
     heating, dhw = result["heating"], result["dhw"]
-    if heating["automatic_mode"] not in ("heat", "auto") or heating["blocked_mode"] not in (
-        "keep",
-        "off",
+    if (
+        not isinstance(heating["automatic_mode"], str)
+        or not 1 <= len(heating["automatic_mode"].strip()) <= 80
+        or heating["blocked_mode"]
+        not in (
+            "keep",
+            "off",
+        )
     ):
         raise ServiceValidationError("Ungültiger Heizungsmodus.")
-    if not isinstance(dhw["operation_mode"], str) or dhw["operation_mode"] not in (
-        "",
-        "heat_pump",
-        "performance",
-    ):
-        raise ServiceValidationError(
-            "Warmwasser-Modus muss unverändert, heat_pump oder performance sein."
-        )
+    if not isinstance(dhw["operation_mode"], str) or len(dhw["operation_mode"]) > 80:
+        raise ServiceValidationError("Ungültiger Warmwasser-Betriebsmodus.")
     if (
         not isinstance(heating["profiles"], dict)
         or not isinstance(dhw["profiles"], dict)
@@ -179,14 +181,14 @@ def validate_pump_control(hass, config, *, check_entities=True):
             "Schreibbare Wärmepumpen-Entitäten dürfen nicht doppelt zugeordnet sein."
         )
     if result["enabled"]:
-        required = [result["pv_entity"]]
+        required = [result["pv_entity"]] if result["pv_entity"] else []
         if heating["enabled"]:
             required += [heating[key] for key in ("entity", "end_entity", "shift_entity")]
         if dhw["enabled"]:
             required += [dhw["entity"]]
         if any(not eid or (check_entities and hass.states.get(eid) is None) for eid in required):
             raise ServiceValidationError(
-                "Zum Aktivieren müssen PV-Signal und aktive Steuerungs-Entitäten vorhanden sein."
+                "Zum Aktivieren müssen die zugeordneten Steuerungs-Entitäten vorhanden sein."
             )
     return result
 
@@ -404,7 +406,7 @@ class HeatPumpController:
             raise
         async with asyncio.timeout(SERVICE_TIMEOUT):
             await self.hass.services.async_call(domain, service, data, blocking=True)
-        return False  # Service receipt may precede Luxtronik's actual acknowledgement.
+        return False  # Service receipt may precede the device's actual acknowledgement.
 
     async def async_restore(self, keys=None):
         errors = {}
@@ -458,8 +460,14 @@ class HeatPumpController:
                     for channel in CHANNELS
                 }
                 return
-            pv_state = self.hass.states.get(config["pv_entity"])
-            pv = pv_state.state == "on" if pv_state and pv_state.state in ("on", "off") else None
+            pv_state = self.hass.states.get(config["pv_entity"]) if config["pv_entity"] else None
+            pv = (
+                False
+                if not config["pv_entity"]
+                else pv_state.state == "on"
+                if pv_state and pv_state.state in ("on", "off")
+                else None
+            )
             if pv != self._pv_sample or self._pv_since is None:
                 self._pv_sample, self._pv_since = pv, now
             ready = pv is True and (now - self._pv_since).total_seconds() >= config["pv_delay"]
@@ -519,7 +527,7 @@ class HeatPumpController:
                             status["pending"] = True
                 except (HomeAssistantError, TimeoutError, OSError, ValueError) as err:
                     status["errors"][channel] = str(err)
-                    _LOGGER.warning("Luxtronik control of %s failed: %s", channel, err)
+                    _LOGGER.warning("Heat-pump control of %s failed: %s", channel, err)
 
     def snapshot(self):
         config = self.config
@@ -551,6 +559,7 @@ class HeatPumpController:
             return celsius(state.attributes.get(attribute) if attribute else state.state, unit)
 
         return {
+            "name": config["name"],
             "enabled": config["enabled"],
             "channels": deepcopy(self.status),
             "return": temperature(config["return_sensor"]),

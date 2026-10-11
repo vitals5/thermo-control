@@ -1,4 +1,4 @@
-"""Luxtronik telemetry, explicit heat availability and aggregate demand."""
+"""Generic heat-pump telemetry, heat availability and aggregate demand."""
 
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class HeatingSystem:
-    """Read configured HA entities; leave compressor and DHW control to Luxtronik."""
+    """Read configured HA entities; preserve the device's internal regulation."""
 
     def __init__(self, manager: RoomManager) -> None:
         self.manager = manager
@@ -61,7 +61,10 @@ class HeatingSystem:
         mode_value = mode.state if mode else None
         automatic = mode_value.casefold() in config["automatic_states"] if mode_value else None
         if not config["mode_entity"] and mode_value:
-            automatic = mode_value in ("heat", "auto")
+            automatic = (
+                mode_value
+                == self.manager.settings["heat_pump_control"]["heating"]["automatic_mode"]
+            )
         flow = state_temperature(state("flow_sensor"))
         target = state_temperature(state("target_sensor"))
         compressor_on = (

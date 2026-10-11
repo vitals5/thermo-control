@@ -79,11 +79,63 @@ async function mountPump(page) {
   await page.getByRole("tab", { name: "Wärmepumpe", exact: true }).click();
   await page.evaluate(() => {
     const editor = window.panel.shadowRoot.querySelector("thermo-control-heat-pump-editor"), config = structuredClone(editor._draft);
+    Object.assign(config, {pv_entity: "input_boolean.pv_load", return_sensor: "sensor.pump_return", flow_sensor: "sensor.pump_flow", mixed_sensor: "sensor.pump_mixed", mixed_end_entity: "number.pump_mixed_end", mixed_shift_entity: "number.pump_mixed_shift"});
+    Object.assign(config.heating, {entity: "climate.pump_heating", end_entity: "number.pump_end", shift_entity: "number.pump_shift"});
+    Object.assign(config.dhw, {entity: "water_heater.pump_water"});
+    window.updateEntity(config.heating.entity, {state: "heat", attributes: {hvac_modes: ["heat", "auto", "off"], temperature: 0, min_temp: -5, max_temp: 5}});
+    window.updateEntity(config.dhw.entity, {state: "automatic", attributes: {operation_list: ["automatic", "eco", "off"], operation_mode: "automatic", temperature: 42}});
+    window.updateEntity(config.pv_entity, {state: "off", attributes: {friendly_name: "PV-Überschuss"}});
     for (const [key, value] of [["mixed_end_entity", 32], ["mixed_shift_entity", 21]]) window.updateEntity(config[key], {state: String(value), attributes: {min: 5, max: 60, step: 0.5, unit_of_measurement: "°C", friendly_name: key}});
+    editor._draft = null;
     window.updateSnapshot({settings: {...window.panel._data.settings, heat_pump_control: config}, heat_pump: {enabled: false, return: 28, flow: 32, mixed_flow: 30, dhw_temperature: 40, dhw_target: 42, mixed_end: 32, mixed_shift: 21, channels: {heating: {profile: "disabled"}, dhw: {profile: "disabled"}}}});
   });
   return page.locator("thermo-control-heat-pump-editor");
 }
+
+test("new heat pump configuration has a generic name and empty entity mappings", async ({ page }) => {
+  await mount(page, true);
+  await page.getByRole("tab", {name: "Wärmepumpe", exact: true}).click();
+  const editor = page.locator("thermo-control-heat-pump-editor");
+  await expect(editor.getByLabel("Name der Wärmepumpe", {exact: true})).toHaveValue("Wärmepumpe");
+  await editor.getByText("Entitäten zuordnen", {exact: true}).click();
+  for (const field of await editor.locator("thermo-control-entity-picker input").all()) await expect(field).toHaveValue("");
+  expect(await page.evaluate(() => window.services)).toEqual([]);
+  await expect(editor.getByRole("combobox", {name: "Warmwasser-Betriebsmodus", exact: true})).toHaveValue("");
+});
+
+test("heat pump name and reported modes can be edited and persist through updates", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByLabel("Name der Wärmepumpe", {exact: true}).fill("Hausanlage <img>");
+  await editor.getByRole("combobox", {name: "Automatik in HA", exact: true}).selectOption("auto");
+  const mode = editor.getByRole("combobox", {name: "Warmwasser-Betriebsmodus", exact: true});
+  await mode.selectOption("eco");
+  await page.evaluate(() => window.updateEntity("water_heater.pump_water", {state: "automatic", attributes: {operation_list: ["automatic", "eco", "standby"], temperature: 42}}));
+  await expect(mode).toHaveValue("eco");
+  await expect(mode.locator('option[value="standby"]')).toHaveCount(1);
+  await mode.selectOption("");
+  await page.evaluate(() => window.updateTemperature(22));
+  await expect(mode).toHaveValue("");
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  await expect(editor.getByRole("heading", {name: "Hausanlage <img>", exact: true})).toBeVisible();
+  await expect(editor.locator("#pump-title img")).toHaveCount(0);
+  const config = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")).config.heat_pump_control);
+  expect(config.name).toBe("Hausanlage <img>");
+  expect(config.heating.automatic_mode).toBe("auto");
+  expect(config.dhw.operation_mode).toBe("");
+});
+
+test("changing a heat pump entity reloads its own operation choices", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByText("Entitäten zuordnen", {exact: true}).click();
+  await page.evaluate(() => window.updateEntity("water_heater.new_pump", {state: "custom_normal", attributes: {friendly_name: "Neue Warmwassersteuerung", operation_list: ["custom_normal", "custom_eco"], temperature: 42}}));
+  await pick(page, "Warmwasser-Entität", "water_heater.new_pump");
+  const mode = editor.getByRole("combobox", {name: "Warmwasser-Betriebsmodus", exact: true});
+  await mode.selectOption("custom_normal");
+  await editor.getByRole("button", {name: "Wärmepumpeneinstellungen speichern", exact: true}).click();
+  const config = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_settings")).config.heat_pump_control);
+  expect(config.dhw.entity).toBe("water_heater.new_pump");
+  expect(config.dhw.operation_mode).toBe("custom_normal");
+});
 
 test("heat pump presets and separate weekly blocking plans are saved", async ({ page }) => {
   const editor = await mountPump(page);
@@ -106,8 +158,8 @@ test("heat pump presets and separate weekly blocking plans are saved", async ({ 
   expect(config.schedules.dhw.enabled).toBe(false);
   expect(Object.keys(config.schedules.heating.weekdays)).toHaveLength(7);
   expect(config.schedules.heating.weekdays.monday).toEqual([{from: "22:00", to: "10:00"}]);
-  expect(config.pv_entity).toBe("input_boolean.wp_laden_evcc");
-  expect(config.dhw.entity).toBe("water_heater.luxtronik_0_00_domestic_water");
+  expect(config.pv_entity).toBe("input_boolean.pv_load");
+  expect(config.dhw.entity).toBe("water_heater.pump_water");
 });
 
 test("heat pump visual editor edits overnight blocks for selected weekdays", async ({ page }) => {
@@ -159,7 +211,7 @@ test("heat pump mapping supplies analytics flow without duplicate configuration"
   await page.getByRole("tab", {name: "Verläufe & Analyse", exact: true}).click();
   await page.getByRole("checkbox", {name: "Vorlauf", exact: true}).check();
   await expect(page.locator("#graph-flow-value")).toHaveText("32.0°");
-  expect(await page.evaluate(() => window.messages.filter((message) => message.type === "history/history_during_period").at(-1).entity_ids)).toContain("sensor.luxtronik_0_00_flow_in_temperature");
+  expect(await page.evaluate(() => window.messages.filter((message) => message.type === "history/history_during_period").at(-1).entity_ids)).toContain("sensor.pump_flow");
 });
 
 test("concurrent heat pump settings updates during saving reload the latest document", async ({ page }) => {
@@ -184,7 +236,7 @@ test("concurrent heat pump settings updates during saving reload the latest docu
 for (const width of [320, 390]) test(`heat pump central controls fit mobile width ${width}`, async ({ page }) => {
   await page.setViewportSize({width, height: 844});
   const editor = await mountPump(page);
-  await expect(editor.getByRole("heading", {name: "Wärmepumpe · Alpha Innotec WWC 100 H/X", exact: true})).toBeVisible();
+  await expect(editor.getByRole("heading", {name: "Wärmepumpe", exact: true})).toBeVisible();
   expect(await editor.evaluate((element) => element.shadowRoot.querySelector("#pump-form").scrollWidth <= element.getBoundingClientRect().width)).toBe(true);
   const fields = editor.locator(".profiles input");
   for (const field of await fields.all()) expect((await field.boundingBox()).width).toBeGreaterThan(40);

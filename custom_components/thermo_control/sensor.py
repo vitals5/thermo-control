@@ -30,8 +30,14 @@ class PumpControlSensor(SensorEntity):
     def __init__(self, manager, channel):
         self.manager, self.channel = manager, channel
         self._attr_unique_id = f"{DOMAIN}_heat_pump_{channel}"
-        self._attr_name = "Thermo Control Wärmepumpe " + (
-            "Heizung" if channel == "heating" else "Warmwasser"
+
+    @property
+    def name(self):
+        return (
+            "Thermo Control "
+            + self.manager.heat_pump.config["name"]
+            + " "
+            + ("Heizung" if self.channel == "heating" else "Warmwasser")
         )
 
     async def async_added_to_hass(self):

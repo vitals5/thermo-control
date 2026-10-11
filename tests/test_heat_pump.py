@@ -30,6 +30,20 @@ async def pump(manager, hass, freezer, service_calls):
     freezer.move_to("2026-10-11T10:00:00+00:00")
     config = deepcopy(HEAT_PUMP_CONTROL_DEFAULTS)
     config.update(enabled=True, pv_delay=0, minimum_hold=60)
+    config.update(
+        pv_entity="input_boolean.pv_load",
+        return_sensor="sensor.pump_return",
+        flow_sensor="sensor.pump_flow",
+        mixed_sensor="sensor.pump_mixed",
+        mixed_end_entity="number.pump_mixed_end",
+        mixed_shift_entity="number.pump_mixed_shift",
+    )
+    config["heating"].update(
+        entity="climate.pump_heating",
+        end_entity="number.pump_end",
+        shift_entity="number.pump_shift",
+    )
+    config["dhw"].update(entity="water_heater.pump_water", operation_mode="heat_pump")
     hass.states.async_set(config["pv_entity"], "off")
     hass.states.async_set(
         config["heating"]["entity"],
@@ -137,6 +151,63 @@ async def test_standard_boost_standard_and_no_mixed_writes(pump, hass, freezer, 
     assert values(pump) == (32, 21, 0, 42)
     assert pump.snapshot()["return"] == 28
     assert pump.snapshot()["mixed_flow"] == 30
+
+
+async def test_existing_configuration_keeps_entities_and_gains_generic_name(pump, hass):
+    config = deepcopy(pump.config)
+    config.pop("name")
+    validated = validate_pump_control(hass, config)
+    assert validated == {**config, "name": "Wärmepumpe"}
+    configured = validate_pump_control(hass, {**config, "name": "  Hausanlage  "})
+    assert configured["name"] == "Hausanlage"
+    pump.manager.settings["heat_pump_control"] = configured
+    from custom_components.thermo_control.sensor import PumpControlSensor
+
+    sensor = PumpControlSensor(pump.manager, "heating")
+    assert sensor.name == "Thermo Control Hausanlage Heizung"
+    assert pump.snapshot()["name"] == "Hausanlage"
+
+
+async def test_generic_reported_operation_modes_and_no_pv_signal(pump, hass, service_calls):
+    settings = deepcopy(pump.manager.settings)
+    config = settings["heat_pump_control"]
+    config["pv_entity"] = None
+    config["heating"]["automatic_mode"] = "auto"
+    config["dhw"]["operation_mode"] = "vendor_automatic"
+    heating = hass.states.get(config["heating"]["entity"])
+    hass.states.async_set(
+        heating.entity_id,
+        heating.state,
+        {**heating.attributes, "hvac_modes": ["heat", "auto", "off"]},
+    )
+    dhw = hass.states.get(config["dhw"]["entity"])
+    hass.states.async_set(
+        dhw.entity_id,
+        dhw.state,
+        {**dhw.attributes, "operation_list": ["heat_pump", "vendor_automatic", "off"]},
+    )
+    await pump.manager.async_save_settings(settings, pump.manager.revision)
+    await hass.async_block_till_done()
+    assert hass.states.get(heating.entity_id).state == "auto"
+    assert hass.states.get(dhw.entity_id).state == "vendor_automatic"
+    assert pump.status["heating"]["pv"] is False
+    assert not pump.status["dhw"]["errors"]
+    service_calls.clear()
+    pump.config["dhw"]["operation_mode"] = "unsupported"
+    pump.config["dhw"]["profiles"]["standard"] = 43
+    await pump.async_reconcile()
+    assert pump.status["dhw"]["errors"]
+    assert not service_calls
+    pump.config["dhw"]["operation_mode"] = ""
+    await pump.async_reconcile()
+    await hass.async_block_till_done()
+    assert any(call[1] == "set_temperature" for call in service_calls)
+    assert [
+        call[2]["operation_mode"] for call in service_calls if call[1] == "set_operation_mode"
+    ] == ["heat_pump"]
+    service_calls.clear()
+    await pump.async_reconcile()
+    assert not any(call[1] == "set_operation_mode" for call in service_calls)
 
 
 async def test_separate_overnight_blocks_and_priority(pump, hass, freezer):
@@ -444,19 +515,22 @@ def test_invalid_schedule(plan):
     "change",
     [
         {"unknown": 3},
+        {"name": " "},
+        {"name": "a" * 81},
+        {"name": None},
         {"enabled": "yes"},
         {"priority": "wrong"},
         {"pv_delay": 1.5},
         {"minimum_hold": 0},
         {"heating": {"bad": 3}},
         {"heating": {"profiles": None}},
-        {"dhw": {"operation_mode": "electric"}},
+        {"dhw": {"operation_mode": None}},
         {"dhw": {"profiles": {"standard": 70, "boost": 55, "blocked": 30}}},
-        {"heating": {"automatic_mode": "cool"}},
+        {"heating": {"automatic_mode": None}},
         {"heating": {"blocked_mode": "cool"}},
         {"schedules": {}},
         {"pv_entity": "sensor.bad"},
-        {"mixed_end_entity": HEAT_PUMP_CONTROL_DEFAULTS["heating"]["end_entity"]},
+        {"mixed_end_entity": "number.shared", "heating": {"end_entity": "number.shared"}},
         {"enabled": True},
     ],
 )

@@ -36,18 +36,19 @@ CONTROL_DEFAULTS = {
 }
 MAINTENANCE_DEFAULTS = {"enabled": False, "time": "12:00", "duration": 180}
 HEAT_PUMP_CONTROL_DEFAULTS = {
+    "name": "Wärmepumpe",
     "enabled": False,
-    "pv_entity": "input_boolean.wp_laden_evcc",
+    "pv_entity": None,
     "priority": "block",
     "pv_delay": 180,
     "minimum_hold": 600,
     "heating_mode": "automatic",
     "heating": {
         "enabled": True,
-        "entity": "climate.luxtronik_0_00_heating",
+        "entity": None,
         "correction_entity": None,
-        "end_entity": "number.luxtronik_0_00_heating_curve_end_temperature",
-        "shift_entity": "number.luxtronik_0_00_heating_curve_parallel_shift_temperature",
+        "end_entity": None,
+        "shift_entity": None,
         "automatic_mode": "heat",
         "blocked_mode": "keep",
         "profiles": {
@@ -58,15 +59,15 @@ HEAT_PUMP_CONTROL_DEFAULTS = {
     },
     "dhw": {
         "enabled": True,
-        "entity": "water_heater.luxtronik_0_00_domestic_water",
-        "operation_mode": "heat_pump",
+        "entity": None,
+        "operation_mode": "",
         "profiles": {"standard": 42, "boost": 55, "blocked": 30},
     },
-    "return_sensor": "sensor.luxtronik_0_00_flow_out_temperature",
-    "flow_sensor": "sensor.luxtronik_0_00_flow_in_temperature",
-    "mixed_sensor": "sensor.luxtronik_0_00_flow_in_circuit1_temperature",
-    "mixed_end_entity": "number.luxtronik_0_00_heating_curve_circuit1_end_temperature",
-    "mixed_shift_entity": "number.luxtronik_0_00_heating_curve_circuit1_parallel_shift_temperature",
+    "return_sensor": None,
+    "flow_sensor": None,
+    "mixed_sensor": None,
+    "mixed_end_entity": None,
+    "mixed_shift_entity": None,
     "schedules": {
         "heating": {"enabled": False, "weekdays": {}},
         "dhw": {"enabled": False, "weekdays": {}},
