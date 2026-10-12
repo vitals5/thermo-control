@@ -5,9 +5,13 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.7.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.7.1`.
 
-Neu in **2.7.0**:
+Neu in **2.7.1**:
+- **Automatisches Cache-Busting für das Seitenleisten-Panel**:
+  - Dynamische Versionsauflösung im Modulpfad (`/thermo_control_static/thermo-control-panel.js?v={version}`): Verhindert zuverlässig, dass Browser oder die Home Assistant Companion App nach Updates veraltete Javascript-Bundles aus dem Cache laden.
+
+Seit **2.7.0**:
 - **Ultra-kompaktes Panel für Smartphone-Bildschirme**:
   - Konsequente Reduzierung vertikaler Leerräume: Toolbar, Tabs-Leiste, Heizungskarte und Master-Sollwertschieber benötigen weniger als die Hälfte der bisherigen Höhe.
   - Raumkacheln um über 40% verkleinert: Messwerte (Ventilöffnung, Thermostate, Fenster) stehen übersichtlich in einer einzigen 3-Spalten-Zeile statt untereinander gestapelt.
@@ -75,7 +79,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.7.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.7.1` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
