@@ -211,7 +211,11 @@ class HeatPumpFlowSensor(HeatPumpTemperatureSensor):
             manager,
             "heat_pump_flow",
             "Thermo Control Wärmepumpe Vorlauf",
-            lambda m: m.heat_pump.snapshot().get("flow"),
+            lambda m: (
+                m.heat_pump.snapshot().get("flow")
+                if m.heat_pump.snapshot().get("flow") is not None
+                else m.system.snapshot().get("flow")
+            ),
         )
 
 

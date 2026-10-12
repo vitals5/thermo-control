@@ -233,6 +233,7 @@ class HeatPumpController:
     def bind(self):
         self.close()
         config = self.config
+        telemetry = self.manager.settings.get("heat_pump", {})
         ids = [
             config[key]
             for key in (
@@ -243,8 +244,10 @@ class HeatPumpController:
                 "mixed_end_entity",
                 "mixed_shift_entity",
             )
-            if config[key]
+            if config.get(key)
         ]
+        if telemetry.get("flow_sensor") and telemetry["flow_sensor"] not in ids:
+            ids.append(telemetry["flow_sensor"])
         for channel in CHANNELS:
             ids += [
                 value for key, value in config[channel].items() if key.endswith("entity") and value
@@ -614,13 +617,18 @@ class HeatPumpController:
             )
             return celsius(state.attributes.get(attribute) if attribute else state.state, unit)
 
+        flow_entity = (
+            config.get("flow_sensor")
+            or self.manager.settings.get("heat_pump", {}).get("flow_sensor")
+            or (config.get("heating", {}).get("entity") if config.get("heating") else None)
+        )
         return {
             "name": config["name"],
             "enabled": config["enabled"],
             "channels": deepcopy(self.status),
             "manual_dhw_boost": bool(self.runtime.get("manual_dhw_boost", False)),
             "return": temperature(config["return_sensor"]),
-            "flow": temperature(config["flow_sensor"]),
+            "flow": temperature(flow_entity),
             "mixed_flow": temperature(config["mixed_sensor"]),
             "dhw_temperature": target(config["dhw"]["entity"], "current_temperature"),
             "dhw_target": target(config["dhw"]["entity"], "temperature"),

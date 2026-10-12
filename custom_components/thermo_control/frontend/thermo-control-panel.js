@@ -323,7 +323,7 @@ class ThermoControlScheduleEditor extends HTMLElement {
       dialog{max-width:600px;width:calc(100% - 32px);max-height:85vh;overflow:auto;background:var(--card-background-color,#1f2937);color:var(--primary-text-color,#f3f4f6);border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
       dialog::backdrop{background:rgba(0,0,0,.7);backdrop-filter:blur(6px)}
       select[multiple]{min-height:150px}[hidden]{display:none!important}
-      @media(max-width:600px){section{padding:14px}.fields{grid-template-columns:minmax(0,1fr)}.blocks{grid-template-columns:minmax(0,1fr)}}
+      @media(max-width:600px){section{padding:10px 12px;border-radius:12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:13px;margin:0 0 6px}p{font-size:12px;line-height:1.4}label{font-size:12px;gap:4px}input,select,button{min-height:38px;padding:8px 10px;font-size:12px;border-radius:8px}.fields{grid-template-columns:minmax(0,1fr);gap:8px}.blocks{grid-template-columns:minmax(0,1fr);gap:6px;margin:10px 0}.days,.actions{gap:4px;margin:8px 0}.days button{padding:4px 10px;font-size:11px}.timeline{height:46px;margin-top:10px;border-radius:8px}#block-form{padding:10px 12px;border-radius:10px;margin:10px 0}}
     </style><section><h2>Wochenzeitpläne</h2><label>Raum oder Gruppe<select id="owner"></select></label><p id="schedule-empty">Lege zuerst einen Raum oder eine Gruppe an.</p><div id="schedule-editor"><p class="help" id="zone"></p><p class="help">Auto · Zeitplan steuert Thermo Control in Heizen. Geräte-Auto verwendet weiterhin den eigenen Thermostatzeitplan. Raumpläne haben Vorrang vor Gruppenplänen.</p><form id="plan-form"><label class="checkbox"><input name="enabled" type="checkbox">Automatikmodus aktiv</label><div class="fields"><label>Vorlage<select id="profile"></select></label><label>Sollwert für Zeitlücken (°C)<input name="fallback_temp" type="number" min="5" max="30" step="0.5" required></label><label>Manueller Override (Stunden; 0 = nächster Schaltpunkt)<input name="override_hours" type="number" min="0" max="48" step="0.5" required></label><label class="checkbox"><input name="preheat" type="checkbox">Vorausschauendes Vorheizen bei FBH</label><label>Aufheizkoeffizient (°C pro Stunde)<input name="heating_rate" type="number" min="0.1" max="5" step="0.1" required></label><label>Maximales Vorheizen (Minuten)<input name="max_preheat_minutes" type="number" min="0" max="360" step="1" required></label></div><p class="help">Vorheizen berücksichtigt Raumtemperatur und die maximale Vorlaufzeit des Raums. Nachtblöcke dürfen über Mitternacht reichen; 24:00 bezeichnet das Tagesende.</p><div class="days" id="days" role="group" aria-label="Tagesauswahl"></div><p class="help" id="day-note"></p><div class="timeline" id="timeline" aria-label="24-Stunden-Zeitachse"></div><div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><div class="blocks" id="blocks"></div><button type="button" id="add">+ Block hinzufügen</button><div class="actions"><button type="submit" class="primary">Zeitplan speichern</button><button type="button" id="copy">Plan auf andere Räume übertragen</button><button type="button" id="reset">Gespeicherten Plan laden</button></div></form><form id="block-form" hidden><h3 id="block-title">Zeitblock bearbeiten</h3><div class="fields"><label>Startzeit<input name="from" type="time" required></label><label>Endzeit<input name="to" type="text" placeholder="HH:MM oder 24:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00" required></label><label>Block-Sollwert (°C)<input name="temp" type="number" min="5" max="30" step="0.5" required></label></div><div class="actions"><button type="submit">Block übernehmen</button><button type="button" id="delete-block">Block löschen</button><button type="button" id="cancel-block">Abbrechen</button></div></form><p id="message" role="alert"></p></div></section><dialog id="copy-dialog"><h2>Zeitplan kopieren</h2><label>Kopierumfang<select id="copy-kind"><option value="week">Gesamte Woche</option><option value="day">Ausgewählter Tag</option></select></label><label>Zielräume und Gruppen<select id="copy-targets" multiple></select></label><label id="copy-days-label" hidden>Zieltage<select id="copy-days" multiple></select></label><p class="help">Neue Wochenkopien sind deaktiviert. Tageskopien erhalten die Aktivierung des Zielplans. Einzelpläne haben Vorrang vor Gruppenplänen.</p><div class="actions"><button id="confirm-copy">Kopieren</button><button id="cancel-copy">Abbrechen</button></div><p id="copy-error" role="alert"></p></dialog>`;
     const root = this.shadowRoot;
     for (const select of root.querySelectorAll("select")) select.setAttribute("aria-label", select.closest("label").firstChild.textContent.trim());
@@ -516,7 +516,7 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       input:focus,select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.25)}
       input:focus-visible,button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
       #pump-block-editor{padding:18px;border:1px solid rgba(255,255,255,0.1);border-radius:14px;margin:16px 0;background:rgba(255,255,255,0.02)}
-      @media(max-width:600px){form,section{padding:14px}.fields{grid-template-columns:minmax(0,1fr)}.blocks{grid-template-columns:minmax(0,1fr)}}
+      @media(max-width:600px){form,section{padding:10px 12px;margin-bottom:12px;border-radius:12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:13px;margin:10px 0 6px}p{font-size:12px;line-height:1.4}label{font-size:12px;gap:4px;margin-bottom:8px}input,select,button{min-height:38px;padding:8px 10px;font-size:12px;border-radius:8px}.fields{grid-template-columns:minmax(0,1fr);gap:8px}.status-grid{gap:6px}.status-grid div{padding:8px 10px;border-radius:8px;font-size:10px}.status-grid strong{font-size:15px;margin-top:2px}.profiles{gap:4px;margin:8px 0}.profiles fieldset{padding:4px;border-radius:8px}.profiles legend{font-size:11px}.profiles label{font-size:10px;margin-bottom:4px}.profiles input{min-height:32px;padding:4px 6px;font-size:12px}.actions,.days{gap:4px;margin:8px 0}.days button{padding:4px 10px;font-size:11px}.timeline{height:46px;margin-top:10px;border-radius:8px}.blocks{grid-template-columns:minmax(0,1fr);gap:6px;margin:10px 0}.note{padding:8px 10px;border-radius:8px;margin:6px 0;font-size:12px}details{padding:10px;margin:10px 0;border-radius:10px}details summary{font-size:13px}details .fields{margin-top:10px}#pump-block-editor{padding:10px 12px;border-radius:10px;margin:10px 0}}
       @media(min-width:700px){.status-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
     </style><section><h2 id="pump-title">Wärmepumpe</h2><div id="pump-status" class="status-grid"></div><div class="actions" style="margin:12px 0 0"><button type="button" id="pump-view-graph">📈 Sensoren im Graph anzeigen</button></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p><div class="actions" style="margin:8px 0 0;align-items:center"><button type="button" id="dhw-boost-trigger">⚡ Brauchwasser Boost manuell auslösen</button><span id="dhw-boost-badge" class="note" style="margin:0;align-items:center;display:none" hidden></span></div></section>
     <form id="pump-form"><h2>Steuerung & Sollwerte</h2><label>Name der Wärmepumpe<input name="name" type="text" maxlength="80" required></label><label class="checkbox"><input name="enabled" type="checkbox">Wärmepumpensteuerung aktivieren</label><div class="fields"><label>Heizungsmodus<select name="heating_mode"><option value="automatic">Automatik</option><option value="off">Aus</option></select></label><label>Priorität<select name="priority"><option value="block">Zeitblockierung vor PV-Boost</option><option value="pv">PV-Boost vor Zeitblockierung</option></select></label><label>PV-Signal muss aktiv sein (s)<input name="pv_delay" type="number" min="0" max="1800" step="1" required></label><label>Mindesthaltezeit Standard / Boost (s)<input name="minimum_hold" type="number" min="60" max="3600" step="1" required></label></div>
@@ -829,9 +829,9 @@ class ThermoControlPanel extends HTMLElement {
         .confirm-actions{display:flex;justify-content:flex-end;gap:10px}
         .saving{font-size:12px;color:var(--secondary-text-color,#9ca3af)}
         [hidden]{display:none!important}
-        @media(max-width:650px){main{padding:16px 12px}.toolbar{padding:12px 16px;gap:8px}.version-label{display:none}.intro{align-items:flex-start}h1{font-size:24px}.intro p{font-size:13px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr}.dialog-body{padding:20px 18px}.dialog-header,.dialog-footer{padding:16px 18px}.wide{grid-column:auto}.version{font-size:11px}}
+        @media(max-width:650px){main{padding:8px 8px 24px}.toolbar{padding:8px 12px;gap:8px}.toolbar strong{font-size:18px}.version-label{display:none}.version{font-size:11px}.intro{margin-bottom:6px}.intro .eyebrow{display:none}.intro h1{font-size:16px;margin:2px 0 2px}.intro p{display:none}.empty{padding:24px 16px;border-radius:12px}.empty h2{margin:10px 0 6px;font-size:16px}.empty-symbol{font-size:28px}.empty button{margin-top:14px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr;gap:10px}dialog{width:calc(100% - 16px);border-radius:14px}.dialog-header{padding:12px 14px}.dialog-header h2{font-size:16px}.dialog-header p{font-size:11px;margin-top:2px}.dialog-body{padding:12px 14px}.dialog-footer{padding:12px 14px;gap:8px}.wide{grid-column:auto}label{gap:4px;font-size:12px}input,select{min-height:38px;padding:8px 10px;font-size:13px;border-radius:8px}}
       </style>
-      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.6.0</span></header>
+      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.7.0</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
@@ -1278,7 +1278,6 @@ class ThermoControlPanel extends HTMLElement {
       .target-row input{min-width:65px}
       .target-row button{padding:10px;font-size:20px}
       .form-note{margin-top:12px;font-size:13px;color:#60a5fa}
-      @media(max-width:650px){.tabs button{font-size:13px;padding:8px 14px}.master{gap:10px}.heating-card{padding:16px}.system-bar{grid-template-columns:repeat(2,minmax(0,1fr))}}
       .analytics{padding:16px 6px 12px}
       .chart-header{padding:0 6px}
       .chart-top{display:flex;gap:10px;align-items:center}
@@ -1384,7 +1383,45 @@ class ThermoControlPanel extends HTMLElement {
       .group-card .group-stepper-compact .target-input { width: 4.1ch; flex: 0 0 4.1ch; height: 100%; min-height: 0; font-size: 13px; font-weight: 600; }
       .group-card .group-stepper-compact .target-unit { padding: 0; font-size: 13px; font-weight: 600; }
       @media(max-width:360px) { .group-card-header { gap: 4px; }.group-card-heading { gap: 3px; }.group-select-pill { font-size: 12px; padding: 0 4px; }.group-select-pill.mode { flex: .9; }.group-select-pill.preset { flex: 1.1; } }
-      @media(max-width:650px) { .room-tile .metrics { grid-template-columns: minmax(0, 1fr); gap: 6px; } .room-tile .metric { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; } .room-tile .metric strong { margin-top: 0; } .master label { overflow-wrap: anywhere; } }
+      @media(max-width:650px) {
+        .tabs { margin: 4px 0 8px; padding: 3px; gap: 3px; border-radius: 10px; }
+        .tabs button { font-size: 12px; padding: 5px 10px; min-height: 34px; border-radius: 8px; }
+        .heating-card { padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; }
+        .heating-subtitle { font-size: 13px; margin: 0 0 6px; }
+        .system-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+        .system-bar span { padding: 6px 8px; border-radius: 8px; gap: 2px; font-size: 10px; }
+        .system-bar strong { font-size: 13px; margin-top: 1px; }
+        .master { padding: 6px 10px; margin-bottom: 6px; border-radius: 12px; gap: 8px; }
+        .master label { font-size: 11px; min-width: 140px; overflow-wrap: anywhere; }
+        .master output { font-size: 12px; padding: 3px 8px; min-width: 48px; border-radius: 12px; }
+        .assignments, .settings-box { padding: 12px; margin-bottom: 10px; border-radius: 12px; }
+        .settings-box h2, .assignments h2 { font-size: 16px; margin-bottom: 10px; }
+        .settings-box .fields { margin: 10px 0; gap: 10px; }
+        table th, table td { padding: 8px 10px; font-size: 12px; }
+        .group-row { padding: 8px 10px; margin-bottom: 6px; }
+        .rooms-floor { margin: 8px 0 3px; font-size: 12px; }
+        .room-tile { padding: 8px 10px; border-radius: 12px; min-height: 0; }
+        .room-tile .card-head { gap: 4px; }
+        .room-tile h2 { font-size: 13px; line-height: 1.2; }
+        .room-tile .edit { width: 36px; min-width: 36px; min-height: 36px; border-radius: 8px; font-size: 15px; }
+        .room-tile .status { gap: 3px; font-size: 10px; margin-top: 2px; }
+        .room-tile .measure { margin: 3px 0 2px; }
+        .room-tile .measure .eyebrow { font-size: 8px; line-height: 1; margin-bottom: 2px; }
+        .room-tile .temperature { font-size: 26px; line-height: 1.1; }
+        .room-tile .unit { font-size: 13px; margin-left: 2px; }
+        .room-tile .temperature-source { font-size: 9px; line-height: 1.1; margin-top: 1px; }
+        .room-tile .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px 0; margin-bottom: 4px; }
+        .room-tile .metric { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3px 2px; border-radius: 6px; min-width: 0; }
+        .room-tile .metric span { font-size: 9px; line-height: 1.1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .room-tile .metric strong { font-size: 11px; line-height: 1.2; margin-top: 1px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+        .room-tile .controls { gap: 4px; }
+        .room-tile select { min-height: 38px; padding: 6px 8px; font-size: 12px; border-radius: 8px; }
+        .schedule-indicator { margin-top: 4px; gap: 4px; }
+        .schedule-toggle { min-width: 38px; min-height: 38px; padding: 4px; border-radius: 8px; }
+        .schedule-status { font-size: 10px; }
+        .room-tile .control-preview { margin-top: 3px; font-size: 9px; line-height: 1.2; }
+        .room-tile .target-stepper { margin-top: 6px; }
+      }
       @media(max-width:360px) { main { padding-left: 8px; padding-right: 8px; } .target-display .target-input, .target-unit { font-size: 14px; } }
     `; root.append(style);
     const system = create("section", undefined, "heating-card"), subtitle = create("h2", "Heizung", "heating-subtitle"), values = create("div", undefined, "system-bar");
@@ -1611,7 +1648,10 @@ class ThermoControlPanel extends HTMLElement {
   }
 
   _chartCelsius(value, unit = this._hass.config?.unit_system?.temperature || "°C") {
-    return value == null || value === "" || !Number.isFinite(Number(value)) ? null : unit === "°F" ? (Number(value) - 32) * 5 / 9 : unit === "K" ? Number(value) - 273.15 : Number(value);
+    if (value == null || value === "") return null;
+    const n = typeof value === "number" ? value : parseFloat(String(value).trim().replace(",", "."));
+    if (!Number.isFinite(n)) return null;
+    return unit === "°F" ? (n - 32) * 5 / 9 : unit === "K" ? n - 273.15 : n;
   }
 
   _compressorValue(value) { return value === "on" ? 1 : value === "off" ? 0 : null; }
@@ -1627,29 +1667,55 @@ class ThermoControlPanel extends HTMLElement {
     if (flowPill) flowPill.hidden = isHP;
     const hpControl = this._data.settings?.heat_pump_control || {};
     const hpTelemetry = this._data.settings?.heat_pump || {};
-    const flowId = hpTelemetry.flow_sensor || hpControl.flow_sensor || null;
+    const flowCandidates = [
+      hpTelemetry.flow_sensor,
+      hpControl.flow_sensor,
+      hpControl.heating?.entity,
+      "sensor.thermo_control_warmepumpe_vorlauf",
+      "sensor.thermo_control_heat_pump_flow",
+    ].filter(Boolean);
     const compressorId = hpTelemetry.compressor_entity || null;
     const display = (value) => value == null ? "—" : `${value.toFixed(1)}°`;
 
-    if (isHP) {
-      const returnId = hpControl.return_sensor || null;
-      const mixedId = hpControl.mixed_sensor || null;
-      const getCelsius = (id) => {
+    const getCelsius = (candidates) => {
+      const list = Array.isArray(candidates) ? candidates : [candidates];
+      for (const id of list) {
+        if (!id) continue;
         const state = this._hass?.states[id];
-        return (state && !["unknown", "unavailable"].includes(state.state)) ? this._chartCelsius(state.state, state.attributes?.unit_of_measurement || "°C") : null;
-      };
+        if (!state || ["unknown", "unavailable"].includes(state.state)) continue;
+        const a = state.attributes || {};
+        const val = (a.current_temperature_celsius != null || a.current_temperature != null)
+          ? (a.current_temperature_celsius ?? a.current_temperature)
+          : state.state;
+        const c = this._chartCelsius(val, a.temperature_unit || a.unit_of_measurement || "°C");
+        if (c != null) return c;
+      }
+      return null;
+    };
+
+    if (isHP) {
+      const returnCandidates = [hpControl.return_sensor, "sensor.thermo_control_warmepumpe_rucklauf", "sensor.thermo_control_heat_pump_return"].filter(Boolean);
+      const mixedCandidates = [hpControl.mixed_sensor, "sensor.thermo_control_mischkreis_vorlauf", "sensor.thermo_control_heat_pump_mixed_flow"].filter(Boolean);
+      const flowFallback = this._data.heat_pump?.flow ?? this._data.system?.flow ?? null;
+      const returnFallback = this._data.heat_pump?.return ?? null;
+      const mixedFallback = this._data.heat_pump?.mixed_flow ?? null;
+      const flowVal = getCelsius(flowCandidates) ?? flowFallback;
+      const returnVal = getCelsius(returnCandidates) ?? returnFallback;
+      const mixedVal = getCelsius(mixedCandidates) ?? mixedFallback;
+
       legend.setAttribute("aria-label", "Aktuelle Wärmepumpen-Messwerte");
-      legend.innerHTML = `<span style="--color:#467eb2">Vorlauf<strong id="graph-hp-flow">${display(getCelsius(flowId))}</strong></span><span style="--color:#287757">Rücklauf<strong id="graph-hp-return">${display(getCelsius(returnId))}</strong></span><span style="--color:#e65100">MK Vorlauf<strong id="graph-hp-mixed">${display(getCelsius(mixedId))}</strong></span>`;
+      legend.innerHTML = `<span style="--color:#467eb2">Vorlauf<strong id="graph-hp-flow">${display(flowVal)}</strong></span><span style="--color:#287757">Rücklauf<strong id="graph-hp-return">${display(returnVal)}</strong></span><span style="--color:#e65100">MK Vorlauf<strong id="graph-hp-mixed">${display(mixedVal)}</strong></span>`;
     } else {
       legend.setAttribute("aria-label", "Aktuelle Temperaturen");
       if (!root.querySelector("#graph-current")) {
         legend.innerHTML = `<span class="legend-current" style="--color:#287757">Ist<strong id="graph-current">—</strong></span><span style="--color:#c56a35">Soll<strong id="graph-target">—</strong></span><span id="graph-flow-legend" style="--color:#467eb2" hidden>Vorlauf<strong id="graph-flow-value">—</strong></span>`;
       }
       const state = this._hass?.states[entityId], a = state?.attributes || {}, valid = state && !["unknown", "unavailable"].includes(state.state);
-      const flowState = this._hass?.states[flowId];
+      const flowId = hpTelemetry.flow_sensor || hpControl.flow_sensor || null;
+      const flowState = flowId ? this._hass?.states[flowId] : null;
       root.querySelector("#graph-current").textContent = display(valid ? (Number.isFinite(a.current_temperature_celsius) ? a.current_temperature_celsius : this._chartCelsius(a.current_temperature)) : null);
       root.querySelector("#graph-target").textContent = display(valid ? (Number.isFinite(a.effective_target_temperature) ? a.effective_target_temperature : this._chartCelsius(a.temperature)) : null);
-      root.querySelector("#graph-flow-value").textContent = display(this._chartCelsius(flowState?.state, flowState?.attributes.unit_of_measurement || "°C"));
+      root.querySelector("#graph-flow-value").textContent = display(this._chartCelsius(flowState?.state, flowState?.attributes?.unit_of_measurement || "°C"));
       root.querySelector("#graph-flow-legend").hidden = !root.querySelector("#graph-flow").checked;
     }
     root.querySelector("#history-chart").classList.toggle("has-compressor", Boolean(compressorId));
@@ -1673,16 +1739,26 @@ class ThermoControlPanel extends HTMLElement {
     const isHP = entityId === "__heat_pump__";
     const hpControl = this._data.settings?.heat_pump_control || {};
     const hpTelemetry = this._data.settings?.heat_pump || {};
-    const flowId = isHP ? (hpTelemetry.flow_sensor || hpControl.flow_sensor || null) : (root.querySelector("#graph-flow").checked ? this._data.settings.heat_pump.flow_sensor || this._data.settings.heat_pump_control?.flow_sensor : null);
-    const returnId = isHP ? (hpControl.return_sensor || null) : null;
-    const mixedId = isHP ? (hpControl.mixed_sensor || null) : null;
-    const compressorId = this._data.settings.heat_pump?.compressor_entity || null;
-    const entityIds = isHP ? [...new Set([flowId, returnId, mixedId, compressorId].filter(Boolean))] : [...new Set([entityId, flowId, compressorId].filter(Boolean))];
+    const explicitFlow = hpTelemetry.flow_sensor || hpControl.flow_sensor || null;
+    const flowChecked = Boolean(root.querySelector("#graph-flow")?.checked);
+    const flowCandidates = isHP
+      ? (explicitFlow ? [explicitFlow] : [hpControl.heating?.entity, "sensor.thermo_control_warmepumpe_vorlauf", "sensor.thermo_control_heat_pump_flow"].filter(Boolean))
+      : (flowChecked && explicitFlow ? [explicitFlow] : []);
+    const returnCandidates = isHP ? (hpControl.return_sensor ? [hpControl.return_sensor] : ["sensor.thermo_control_warmepumpe_rucklauf", "sensor.thermo_control_heat_pump_return"].filter(Boolean)) : [];
+    const mixedCandidates = isHP ? (hpControl.mixed_sensor ? [hpControl.mixed_sensor] : ["sensor.thermo_control_mischkreis_vorlauf", "sensor.thermo_control_heat_pump_mixed_flow"].filter(Boolean)) : [];
+    const compressorId = hpTelemetry.compressor_entity || null;
+    const flowId = isHP ? (flowCandidates[0] || null) : (flowChecked ? explicitFlow : null);
+    const returnId = returnCandidates[0] || null;
+    const mixedId = mixedCandidates[0] || null;
+
+    const entityIds = isHP
+      ? [...new Set([...flowCandidates, ...returnCandidates, ...mixedCandidates, compressorId].filter(Boolean))]
+      : [...new Set([entityId, ...(flowChecked ? flowCandidates : []), compressorId].filter(Boolean))];
     if (isHP && !entityIds.length) { root.querySelector("#graph-status").textContent = "Keine Wärmepumpen-Sensoren in den Einstellungen zugeordnet."; return; }
     try {
       const history = await this._hass.callWS({ type: "history/history_during_period", start_time: new Date(start).toISOString(), end_time: new Date(end).toISOString(), entity_ids: entityIds, significant_changes_only: false, minimal_response: false, no_attributes: false });
       if (generation !== this._historyGeneration || !this.isConnected) return;
-      this._chartData = [history || {}, entityId, flowId, start, end, compressorId, { isHP, returnId, mixedId }];
+      this._chartData = [history || {}, entityId, flowCandidates, start, end, compressorId, { isHP, returnId, mixedId, returnCandidates, mixedCandidates, flowId }];
       this._drawHistory(...this._chartData);
     } catch (error) {
       if (generation !== this._historyGeneration || !this.isConnected) return;
@@ -1690,9 +1766,10 @@ class ThermoControlPanel extends HTMLElement {
     }
   }
 
-  _drawHistory(history, entityId, flowId, start, end, compressorId = null, extra = null) {
+  _drawHistory(history, entityId, flowCandidates, start, end, compressorId = null, extra = null) {
     const root = this.shadowRoot, svg = root.querySelector("#history-chart"), tooltip = root.querySelector("#graph-tooltip"); svg.replaceChildren(); tooltip.hidden = true;
     const isHP = Boolean(extra?.isHP);
+    const flowId = extra?.flowId || (Array.isArray(flowCandidates) ? flowCandidates[0] : flowCandidates) || null;
     const visible = (series) => { let first = series.findIndex((point) => point.time >= start); if (first < 0) return series.length ? [series.at(-1)] : []; return series.slice(series[first].time === start ? first : Math.max(0, first - 1)); };
     const bounds = (values) => values.length ? [values.reduce((a, b) => Math.min(a, b), Infinity) - 0.5, values.reduce((a, b) => Math.max(a, b), -Infinity) + 0.5] : [19.5, 20.5];
     const compact = (points) => {
@@ -1706,6 +1783,27 @@ class ThermoControlPanel extends HTMLElement {
         result.push(...[...new Set([bucket[0], minimum, maximum, missing, bucket.at(-1)].filter(Boolean))].sort((a, b) => a.time - b.time));
       };
       for (const point of points) { const next = Math.floor((point.time - start) / (end - start) * plotWidth); if (key !== next) { flush(); bucket = []; key = next; } bucket.push(point); } flush(); return result;
+    };
+
+    const parseSeries = (id) => (history[id] || []).map((state) => {
+      const a = state.a || state.attributes || {}, raw = state.lu ?? state.lc ?? state.last_updated ?? state.last_changed;
+      const tempRaw = (a.current_temperature_celsius != null || a.current_temperature != null)
+        ? (a.current_temperature_celsius ?? a.current_temperature)
+        : (state.s ?? state.state);
+      return {
+        time: typeof raw === "number" ? raw * 1000 : Date.parse(raw),
+        value: this._chartCelsius(tempRaw, a.temperature_unit || a.unit_of_measurement || "°C"),
+      };
+    }).filter((point) => Number.isFinite(point.time) && point.time <= end).sort((a, b) => a.time - b.time);
+
+    const findBestSeries = (candidates) => {
+      const list = Array.isArray(candidates) ? candidates : [candidates].filter(Boolean);
+      for (const id of list) {
+        if (!id) continue;
+        const pts = parseSeries(id);
+        if (pts.some((p) => p.value !== null)) return pts;
+      }
+      return list[0] ? parseSeries(list[0]) : [];
     };
 
     const compressor = compressorId ? visible((history[compressorId] || []).map((state) => {
@@ -1722,13 +1820,12 @@ class ThermoControlPanel extends HTMLElement {
     }
 
     if (isHP) {
-      const parseTemp = (list) => (list || []).map((state) => {
-        const a = state.a || state.attributes || {}, raw = state.lu ?? state.lc ?? state.last_updated ?? state.last_changed;
-        return { time: typeof raw === "number" ? raw * 1000 : Date.parse(raw), value: this._chartCelsius(state.s ?? state.state, a.unit_of_measurement || "°C") };
-      }).filter((point) => Number.isFinite(point.time) && point.time <= end).sort((a, b) => a.time - b.time);
-      const hpFlow = flowId ? visible(parseTemp(history[flowId])) : [];
-      const hpReturn = extra?.returnId ? visible(parseTemp(history[extra.returnId])) : [];
-      const hpMixed = extra?.mixedId ? visible(parseTemp(history[extra.mixedId])) : [];
+      const flowList = Array.isArray(flowCandidates) ? flowCandidates : [flowCandidates, extra?.flowId].filter(Boolean);
+      const returnList = extra?.returnCandidates || [extra?.returnId].filter(Boolean);
+      const mixedList = extra?.mixedCandidates || [extra?.mixedId].filter(Boolean);
+      const hpFlow = flowList.length ? visible(findBestSeries(flowList)) : [];
+      const hpReturn = returnList.length ? visible(findBestSeries(returnList)) : [];
+      const hpMixed = mixedList.length ? visible(findBestSeries(mixedList)) : [];
       const allTempValues = [...hpFlow, ...hpReturn, ...hpMixed].map((p) => p.value).filter((v) => v !== null);
       if (!allTempValues.length && !compressorId) { root.querySelector("#graph-status").textContent = "Keine aufgezeichneten Messwerte im gewählten Zeitraum."; return; }
       const [low, high] = bounds(allTempValues);
@@ -1827,9 +1924,9 @@ class ThermoControlPanel extends HTMLElement {
       const time = typeof raw === "number" ? raw * 1000 : Date.parse(raw), valid = !["unknown", "unavailable"].includes(state.s ?? state.state);
       return { time, current: valid ? (Number.isFinite(a.current_temperature_celsius) ? a.current_temperature_celsius : this._chartCelsius(a.current_temperature)) : null, target: valid ? (Number.isFinite(a.effective_target_temperature) ? a.effective_target_temperature : this._chartCelsius(a.temperature)) : null, action: valid ? a.hvac_action : null, valve: valid && Number.isFinite(a.valve_position) ? a.valve_position : null };
     }).filter((point) => Number.isFinite(point.time) && point.time <= end).sort((a, b) => a.time - b.time);
-    const flow = (history[flowId] || []).map((state) => { const a = state.a || state.attributes || {}, raw = state.lu ?? state.lc ?? state.last_updated ?? state.last_changed; return { time: typeof raw === "number" ? raw * 1000 : Date.parse(raw), value: this._chartCelsius(state.s ?? state.state, a.unit_of_measurement || "°C") }; }).filter((point) => Number.isFinite(point.time) && point.time <= end).sort((a, b) => a.time - b.time);
-    // Retain the initial Recorder state at the range boundary, ignoring older changes.
-    const room = visible(points), water = flowId ? visible(flow) : [];
+    const room = visible(points);
+    const flowList = Array.isArray(flowCandidates) ? flowCandidates : [flowCandidates].filter(Boolean);
+    const water = flowList.length ? visible(findBestSeries(flowList)) : [];
     // Setpoints are held until the next recorded change. Draw separate horizontal
     // plateaus instead of vertical connectors; zero-duration reports have no phase.
     const targets = []; let targetPhase = null;

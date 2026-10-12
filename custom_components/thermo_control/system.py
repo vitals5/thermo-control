@@ -46,12 +46,17 @@ class HeatingSystem:
         config = self.manager.settings["heat_pump"]
 
         def state(key):
-            entity_id = config[key]
+            entity_id = config.get(key)
             if not entity_id and key in ("flow_sensor", "mode_entity"):
-                pump = self.manager.settings["heat_pump_control"]
-                entity_id = (
-                    pump["flow_sensor"] if key == "flow_sensor" else pump["heating"]["entity"]
-                )
+                pump = self.manager.settings.get("heat_pump_control", {})
+                if key == "flow_sensor":
+                    entity_id = pump.get("flow_sensor") or (
+                        pump.get("heating", {}).get("entity") if pump.get("heating") else None
+                    )
+                else:
+                    entity_id = (
+                        pump.get("heating", {}).get("entity") if pump.get("heating") else None
+                    )
             value = self.manager.hass.states.get(entity_id) if entity_id else None
             return (
                 value if value and value.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE) else None

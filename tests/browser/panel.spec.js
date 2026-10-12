@@ -1731,6 +1731,51 @@ test("heat pump combined graph plots flow, return, mixed and compressor in one c
   await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
 });
 
+test("heat pump combined graph falls back to climate heating entity with current_temperature and comma decimals when flow_sensor is not set", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page);
+  await page.evaluate(() => {
+    const start = Date.now() / 1000 - 86400;
+    const settings = structuredClone(window.panel._data.settings);
+    settings.heat_pump.flow_sensor = null;
+    settings.heat_pump_control.flow_sensor = null;
+    settings.heat_pump_control.heating = {
+      ...settings.heat_pump_control.heating,
+      entity: "climate.main_heat_pump",
+    };
+    settings.heat_pump_control.return_sensor = "sensor.pump_return";
+    settings.heat_pump_control.mixed_sensor = "sensor.pump_mixed";
+
+    window.updateEntity("climate.main_heat_pump", { state: "heat", attributes: { current_temperature: 36.5, temperature_unit: "°C" } });
+    window.updateEntity("sensor.pump_return", { state: "29,5", attributes: { unit_of_measurement: "°C" } });
+    window.updateEntity("sensor.pump_mixed", { state: "32.0", attributes: { unit_of_measurement: "°C" } });
+
+    window.historyData["climate.main_heat_pump"] = [
+      { s: "heat", lu: start, a: { current_temperature: 34.0 } },
+      { s: "heat", lu: start + 43200, a: { current_temperature: 36.5 } }
+    ];
+    window.historyData["sensor.pump_return"] = [{ s: "28,0", lu: start }, { s: "29,5", lu: start + 43200 }];
+    window.historyData["sensor.pump_mixed"] = [{ s: "31.0", lu: start }, { s: "32.0", lu: start + 43200 }];
+
+    window.updateSnapshot({ settings });
+  });
+
+  await page.getByRole("tab", { name: "Wärmepumpe", exact: true }).click();
+  await page.locator("#pump-view-graph").click();
+
+  await expect(page.locator("#graph-room")).toHaveValue("__heat_pump__");
+  await expect(page.locator("#history-chart .hp-flow-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .hp-return-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .hp-mixed-curve")).toHaveCount(1);
+
+  await expect(page.locator("#graph-hp-flow")).toHaveText("36.5°");
+  await expect(page.locator("#graph-hp-return")).toHaveText("29.5°");
+  await expect(page.locator("#graph-hp-mixed")).toHaveText("32.0°");
+
+  await inspectChart(page, 0.7);
+  await expect(page.locator("#graph-tooltip")).toContainText("Vorlauf: 36.5 °C | Rücklauf: 29.5 °C");
+});
+
 test("manual DHW boost can be triggered and shows active badge until completed", async ({ page }) => {
   await mountPump(page);
   await page.evaluate(() => {

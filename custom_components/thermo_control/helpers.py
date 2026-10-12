@@ -15,6 +15,8 @@ def finite(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", ".")
         number = float(value)
     except (ValueError, TypeError):
         return None
@@ -33,10 +35,18 @@ def celsius(value: Any, unit: str | None) -> float | None:
     return TemperatureConverter.convert(number, unit, UnitOfTemperature.CELSIUS)
 
 
-def state_temperature(state: State | None) -> float | None:
-    if state is None:
+def state_temperature(state: State | None, attribute: str | None = None) -> float | None:
+    if state is None or state.state in ("unknown", "unavailable"):
         return None
-    return celsius(state.state, state.attributes.get("unit_of_measurement"))
+    unit = state.attributes.get(
+        "unit_of_measurement",
+        state.attributes.get("temperature_unit", UnitOfTemperature.CELSIUS),
+    )
+    if attribute:
+        return celsius(state.attributes.get(attribute), unit)
+    if state.entity_id.startswith("climate."):
+        return celsius(state.attributes.get("current_temperature"), unit)
+    return celsius(state.state, unit)
 
 
 def quantize(
