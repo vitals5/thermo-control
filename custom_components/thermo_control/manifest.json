@@ -9,12 +9,15 @@
   ],
   "config_flow": true,
   "dependencies": [
+    "binary_sensor",
+    "button",
     "climate",
     "frontend",
     "http",
     "number",
     "panel_custom",
     "sensor",
+    "switch",
     "water_heater",
     "websocket_api"
   ],
@@ -24,5 +27,5 @@
   "issue_tracker": "https://github.com/vitals5/thermo-control/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "2.4.0"
+  "version": "2.5.0"
 }

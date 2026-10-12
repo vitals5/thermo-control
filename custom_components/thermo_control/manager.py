@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -320,6 +322,49 @@ class RoomManager:
             self.revision += 1
             self.notify()
             self.schedule_reconcile()
+
+    async def async_update_setting(self, updater: Callable[[dict[str, Any]], None]) -> None:
+        async with self._lock:
+            self._check_revision(self.revision)
+            settings = deepcopy(self.settings)
+            updater(settings)
+            validated = validate_settings(self.hass, settings, check_entities=False)
+            await self._store.async_save(
+                {**self._payload(self.rooms, self.revision + 1), "settings": validated}
+            )
+            self.settings = validated
+            self.revision += 1
+            self.system.bind()
+            self.heat_pump.bind()
+            await self._sync_groups()
+            self.notify()
+            self.schedule_reconcile()
+
+    async def async_trigger_valve_maintenance(self) -> None:
+        now = dt_util.utcnow()
+        today = dt_util.as_local(now).date().isoformat()
+        duration = self.settings["valve_maintenance"]["duration"]
+        for entity in self.entities.values():
+            entity.coordinator.maintenance.state.pop("last_date", None)
+        for entity in self.entities.values():
+            coord = entity.coordinator
+            if (
+                coord.config["valve_maintenance"]
+                and not coord.native_auto
+                and not coord._windows_open()
+                and not coord.window_blocked
+                and coord._room_temperature() is not None
+            ):
+                await coord.maintenance._save(
+                    phase="close",
+                    last_date=today,
+                    last_result="running",
+                    duration=duration,
+                    until=(now + timedelta(seconds=duration)).isoformat(),
+                )
+                break
+        self.notify()
+        self.schedule_reconcile()
 
     async def _sync_groups(self) -> None:
         from .groups import ThermoControlGroup

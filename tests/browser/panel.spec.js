@@ -1689,3 +1689,82 @@ test("real short and sustained frost setpoints remain visible and available in t
   await chart.dispatchEvent("pointerdown", { clientX: box.x + (plateaus[3].start + plateaus[3].end) / 2, clientY: box.y + 150, pointerType: "touch" });
   await expect(page.locator("#graph-tooltip")).toContainText("Soll: 5.0 °C");
 });
+
+test("heat pump combined graph plots flow, return, mixed and compressor in one chart and links from pump tab", async ({ page }) => {
+  await pauseClock(page);
+  await compressorFixture(page);
+  await page.evaluate(() => {
+    const start = Date.now() / 1000 - 86400;
+    const settings = structuredClone(window.panel._data.settings);
+    settings.heat_pump_control = {
+      ...settings.heat_pump_control,
+      flow_sensor: "sensor.pump_flow",
+      return_sensor: "sensor.pump_return",
+      mixed_sensor: "sensor.pump_mixed",
+    };
+    settings.heat_pump.flow_sensor = "sensor.pump_flow";
+    window.updateEntity("sensor.pump_flow", { state: "35.5", attributes: { unit_of_measurement: "°C" } });
+    window.updateEntity("sensor.pump_return", { state: "29.0", attributes: { unit_of_measurement: "°C" } });
+    window.updateEntity("sensor.pump_mixed", { state: "32.0", attributes: { unit_of_measurement: "°C" } });
+    window.historyData["sensor.pump_flow"] = [{ s: "34.0", lu: start }, { s: "35.5", lu: start + 43200 }];
+    window.historyData["sensor.pump_return"] = [{ s: "28.0", lu: start }, { s: "29.0", lu: start + 43200 }];
+    window.historyData["sensor.pump_mixed"] = [{ s: "31.0", lu: start }, { s: "32.0", lu: start + 43200 }];
+    window.updateSnapshot({ settings });
+  });
+
+  await page.getByRole("tab", { name: "Wärmepumpe", exact: true }).click();
+  await page.locator("#pump-view-graph").click();
+
+  await expect(page.locator("#graph-room")).toHaveValue("__heat_pump__");
+  await expect(page.locator("#history-chart .hp-flow-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .hp-return-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .hp-mixed-curve")).toHaveCount(1);
+  await expect(page.locator("#history-chart .compressor-curve")).toHaveCount(1);
+
+  await expect(page.locator("#graph-hp-flow")).toHaveText("35.5°");
+  await expect(page.locator("#graph-hp-return")).toHaveText("29.0°");
+  await expect(page.locator("#graph-hp-mixed")).toHaveText("32.0°");
+
+  await inspectChart(page, 0.7);
+  await expect(page.locator("#graph-tooltip")).toContainText("Vorlauf: 35.5 °C | Rücklauf: 29.0 °C");
+  await expect(page.locator("#graph-tooltip")).toContainText("MK Vorlauf: 32.0 °C");
+  await expect(page.locator("#graph-tooltip")).toContainText("Verdichter: An");
+});
+
+test("manual DHW boost can be triggered and shows active badge until completed", async ({ page }) => {
+  await mountPump(page);
+  await page.evaluate(() => {
+    const config = structuredClone(window.panel._data.settings.heat_pump_control);
+    config.enabled = true;
+    config.dhw.enabled = true;
+    window.updateSnapshot({ settings: { ...window.panel._data.settings, heat_pump_control: config } });
+  });
+  const triggerBtn = page.locator("#dhw-boost-trigger");
+  const badge = page.locator("#dhw-boost-badge");
+
+  await expect(triggerBtn).toHaveText("⚡ Brauchwasser Boost manuell auslösen");
+  await expect(badge).toBeHidden();
+
+  await triggerBtn.click();
+  const msg = await page.evaluate(() => window.messages.find((m) => m.type === "thermo_control/trigger_dhw_boost"));
+  expect(msg).toBeDefined();
+  expect(msg.enable).toBe(true);
+
+  await page.evaluate(() => {
+    window.updateSnapshot({
+      heat_pump: {
+        ...window.panel._data.heat_pump,
+        manual_dhw_boost: true,
+      },
+    });
+  });
+
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("Manuell aktiv (bis Sollwert erreicht)");
+  await expect(triggerBtn).toHaveText("Brauchwasser Boost beenden");
+
+  await triggerBtn.click();
+  const cancelMsg = await page.evaluate(() => window.messages.filter((m) => m.type === "thermo_control/trigger_dhw_boost").at(-1));
+  expect(cancelMsg.enable).toBe(false);
+});
+

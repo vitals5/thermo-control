@@ -1,4 +1,4 @@
-# Thermo Control 2.4.0 – Regelung und Panel
+# Thermo Control 2.5.0 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
@@ -9,6 +9,12 @@
 - Alle absoluten Regeltemperaturen und Master-Differenzen werden intern in Celsius geführt. Climate-Darstellung und Serviceaufrufe berücksichtigen die HA-/Geräteeinheiten.
 - Steuerung, Speicher und Services sind asynchron. Zustandslistener verwenden ausschließlich `async_track_state_change_event`. Eine minütliche Abgleichroutine bedient PWM, Wiederholungen und Trendaufnahme; Listener und laufende Aufgaben werden beim Entladen entfernt.
 - Raumabsicht (`desired_hvac_mode`, `preset_mode`, Celsius-Sollwert und manueller Rückkehrwert) wird über `extra_restore_state_data` unabhängig von den sichtbaren Climate-Attributen gespeichert. HA entfernt diese Attribute bei `unavailable`; zusätzliche Wiederherstellungsdaten bleiben für Neustart und Neuladen erhalten und werden vor den ersten Gerätebefehlen gelesen. Alte verfügbare Zustände bleiben als Fallback kompatibel. Bewusst ausgeschaltete Räume bleiben ausgeschaltet. Zeitplan-Overrides und Aktivierungsflags bleiben im separaten Zeitplanspeicher.
+- Vollständige Home-Assistant-Entitäten für alle relevanten Statuswerte und Steuerungen:
+  - **Button**: `button.thermo_control_dhw_boost` (Brauchwasser-Boost manuell auslösen), `button.thermo_control_cancel_dhw_boost` (Boost beenden), `button.thermo_control_valve_maintenance` (Ventilwartung manuell starten).
+  - **Binary Sensor**: `binary_sensor.thermo_control_dhw_boost` (Boost aktiv), `binary_sensor.thermo_control_heat_pump_compressor` (Verdichter), `binary_sensor.thermo_control_heat_permit` (Wärmefreigabe), `binary_sensor.thermo_control_pv_signal` (PV-Signal), `binary_sensor.thermo_control_heat_requested` (Wärmebedarf).
+  - **Switch**: `switch.thermo_control_heat_pump_master` (Hauptschalter), `switch.thermo_control_heat_pump_heating` (Heizungssteuerung), `switch.thermo_control_heat_pump_dhw` (Warmwassersteuerung), `switch.thermo_control_heat_pump_interlock` (Wärmefreigabe/Interlock), `switch.thermo_control_valve_maintenance` (Tägliche Ventilwartung).
+  - **Number**: `number.thermo_control_master_offset` (Master-Sollwertverschiebung), `number.thermo_control_dhw_standard` / `boost` / `blocked` (Warmwasser-Sollwerte), `number.thermo_control_heating_curve_end` / `shift` / `correction` (Heizkurven-Parameter).
+  - **Sensor**: `sensor.thermo_control_mean_demand` (Mittlerer Hausbedarf), `sensor.thermo_control_heating_rooms` (Heizende Räume), `sensor.thermo_control_demand_rooms` (Räume mit Wärmebedarf), `sensor.thermo_control_heat_pump_flow` / `return` / `mixed_flow` / `target` (Heizkreis- und Mischkreistemperaturen), `sensor.thermo_control_heat_pump_dhw_current` / `target` (Warmwasser Ist/Soll).
 
 ## Tägliche Ventilwartung
 

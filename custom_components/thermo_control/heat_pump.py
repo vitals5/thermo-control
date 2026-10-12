@@ -199,7 +199,7 @@ class HeatPumpController:
     def __init__(self, manager):
         self.manager, self.hass = manager, manager.hass
         self._store = Store(self.hass, 1, "thermo_control.heat_pump")
-        self.runtime = {"writes": {}, "channels": {}, "baseline": {}}
+        self.runtime = {"writes": {}, "channels": {}, "baseline": {}, "manual_dhw_boost": False}
         self.status = {
             channel: {"profile": "disabled", "errors": {}, "pending": False} for channel in CHANNELS
         }
@@ -215,6 +215,20 @@ class HeatPumpController:
     async def async_initialize(self):
         if stored := await self._store.async_load():
             self.runtime.update(stored)
+        self.runtime.setdefault("manual_dhw_boost", False)
+
+    async def async_trigger_dhw_boost(self, enable: bool = True) -> None:
+        """Trigger or cancel manual DHW boost."""
+        async with self._lock:
+            if enable:
+                if not self.config["enabled"]:
+                    raise ServiceValidationError("Wärmepumpensteuerung ist nicht aktiviert.")
+                if not self.config["dhw"]["enabled"]:
+                    raise ServiceValidationError("Warmwasser-Kanal ist nicht aktiviert.")
+            self.runtime["manual_dhw_boost"] = bool(enable)
+            await self._save()
+        self.manager.notify()
+        self.manager.schedule_reconcile()
 
     def bind(self):
         self.close()
@@ -451,6 +465,12 @@ class HeatPumpController:
                         managed.add(f"{config['dhw']['entity']}/set_operation_mode")
             retired_errors = await self.async_restore(set(self.runtime["baseline"]) - managed)
             if not config["enabled"]:
+                if self.runtime.get("manual_dhw_boost"):
+                    self.runtime["manual_dhw_boost"] = False
+                    try:
+                        await self._save()
+                    except OSError:
+                        pass
                 self.status = {
                     channel: {
                         "profile": "disabled",
@@ -473,16 +493,48 @@ class HeatPumpController:
             ready = pv is True and (now - self._pv_since).total_seconds() >= config["pv_delay"]
             for channel in CHANNELS:
                 if not config[channel]["enabled"]:
+                    if channel == "dhw" and self.runtime.get("manual_dhw_boost"):
+                        self.runtime["manual_dhw_boost"] = False
+                        try:
+                            await self._save()
+                        except OSError:
+                            pass
                     self.status[channel] = {
                         "profile": "disabled",
                         "errors": dict(retired_errors),
                         "pending": bool(set(self.runtime["baseline"]) - managed),
                     }
                     continue
+                manual_boost = False
+                if channel == "dhw" and self.runtime.get("manual_dhw_boost"):
+                    manual_boost = True
+                    dhw_state = (
+                        self.hass.states.get(config["dhw"]["entity"])
+                        if config["dhw"]["entity"]
+                        else None
+                    )
+                    dhw_temp = None
+                    if dhw_state and dhw_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                        unit = dhw_state.attributes.get(
+                            "temperature_unit",
+                            dhw_state.attributes.get(
+                                "unit_of_measurement", self.hass.config.units.temperature_unit
+                            ),
+                        )
+                        dhw_temp = celsius(dhw_state.attributes.get("current_temperature"), unit)
+                    boost_target = config["dhw"]["profiles"]["boost"]
+                    if dhw_temp is not None and dhw_temp >= boost_target:
+                        manual_boost = False
+                        self.runtime["manual_dhw_boost"] = False
+                        try:
+                            await self._save()
+                        except OSError:
+                            pass
+                        self.manager.notify()
                 block = blocked(config["schedules"][channel], now)
                 profile = (
                     "boost"
-                    if ready and (not block or config["priority"] == "pv")
+                    if manual_boost or (ready and (not block or config["priority"] == "pv"))
                     else "blocked"
                     if block
                     else "standard"
@@ -492,7 +544,8 @@ class HeatPumpController:
                 saved = self.runtime["channels"].get(channel, {})
                 since = dt_util.parse_datetime(saved.get("since", ""))
                 if (
-                    profile in ("standard", "boost")
+                    not manual_boost
+                    and profile in ("standard", "boost")
                     and saved.get("profile") in ("standard", "boost")
                     and since
                     and pv is not None
@@ -504,6 +557,7 @@ class HeatPumpController:
                     "blocked": block,
                     "pv": pv,
                     "pv_ready": ready,
+                    "manual_boost": manual_boost,
                     "errors": dict(retired_errors),
                     "pending": False,
                 }
@@ -562,6 +616,7 @@ class HeatPumpController:
             "name": config["name"],
             "enabled": config["enabled"],
             "channels": deepcopy(self.status),
+            "manual_dhw_boost": bool(self.runtime.get("manual_dhw_boost", False)),
             "return": temperature(config["return_sensor"]),
             "flow": temperature(config["flow_sensor"]),
             "mixed_flow": temperature(config["mixed_sensor"]),

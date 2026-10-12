@@ -9,6 +9,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.thermo_control import (
     CONFIG_SCHEMA,
+    PLATFORMS,
     async_setup,
     async_setup_entry,
     async_unload_entry,
@@ -45,7 +46,7 @@ async def test_empty_entry_setup_unload_and_reload(hass, hass_storage):
         assert manager.rooms == {}
         assert manager.config_entry_id == entry.entry_id
         assert manager.revision == 0
-        forward.assert_awaited_once_with(entry, ["climate", "sensor"])
+        forward.assert_awaited_once_with(entry, PLATFORMS)
         assert await async_unload_entry(hass, entry)
         assert manager._closed
         assert remove.call_args_list == [call(hass, path) for path in PANEL_PATHS]

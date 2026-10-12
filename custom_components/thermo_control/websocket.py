@@ -125,6 +125,25 @@ async def ws_master_offset(hass, connection, msg):
         connection.send_result(msg["id"])
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/trigger_dhw_boost",
+        vol.Optional("enable", default=True): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_trigger_dhw_boost(hass, connection, msg):
+    try:
+        await hass.data[DOMAIN].heat_pump.async_trigger_dhw_boost(msg.get("enable", True))
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "invalid_configuration", str(err))
+    except OSError:
+        connection.send_error(msg["id"], "storage_error", "Status konnte nicht gespeichert werden.")
+    else:
+        connection.send_result(msg["id"])
+
+
 @callback
 def async_register_commands(hass: HomeAssistant) -> None:
     for command in (
@@ -138,6 +157,7 @@ def async_register_commands(hass: HomeAssistant) -> None:
         ws_save_schedule,
         ws_copy_schedule,
         ws_set_mixed_curve,
+        ws_trigger_dhw_boost,
     ):
         websocket_api.async_register_command(hass, command)
 

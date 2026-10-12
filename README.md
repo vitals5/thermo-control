@@ -5,15 +5,19 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.4.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.5.0`.
 
-Neu in **2.4.0**: Umfassendes UI/UX-Redesign des gesamten Seitenleisten-Panels für optimale Übersicht und intuitive Bedienung:
-- **Segmentierte Navigation**: Moderner Tab-Switcher im Segmented-Control-Stil mit klarem Kontrast und sanfter Hover-Rückmeldung.
-- **Übersicht & Systemstatus**: Aufgeräumte Stat-Cards für die zentralen Heizungswerte (Vorlauf Ist/Soll, Verdichter, Modus, Hausbedarf).
-- **Master-Sollwertverschiebung**: Kompakte Karte mit Schieberegler und formatiertem Badge-Pill für den Offset-Wert.
-- **Raumkacheln**: Klares Kacheldesign mit akzentuierten Temperaturwerten, optimierten Metrik-Karten und präzisen Steppern.
-- **Wochenzeitpläne & Wärmepumpe**: Pill-Buttons für die Tagesauswahl, übersichtliche 24h-Zeitachse und strukturierte Formulare.
-- **Thermostate & Gruppen sowie Einstellungen**: Strukturierte Tabellen und saubere Feldgruppierungen für alle Konfigurationsbereiche.
+Neu in **2.5.0**:
+- **Kombinierter Wärmepumpen-Graph**: Heizkreis-Vorlauf, Heizkreis-Rücklauf, Mischkreis-Vorlauf und Verdichterstatus in einem einzigen gemeinsamen Diagramm („Wärmepumpe: Alle Sensoren“). Einheitliche Temperaturskala für direkten Spreizungsvergleich, Schnellzugriff per Button („📈 Sensoren im Graph anzeigen“) aus dem Wärmepumpen-Editor und interaktiver Multi-Sensor-Tooltip.
+- **Manueller Brauchwasser (DHW) Boost**: Direkte Auslösung über Button-Entität (`button.thermo_control_dhw_boost`) oder im Wärmepumpen-Editor. Bleibt aktiv gesetzt, bis das Warmwasser auf die Soll-Boost-Temperatur aufgeheizt wurde, und schaltet sich anschließend automatisch ab.
+- **Vollständige Home-Assistant-Entitäten für alle Einstellungen & Statuswerte**:
+  - **Button**: `dhw_boost`, `cancel_dhw_boost`, `valve_maintenance` (sofortiger Start des Ventilwartungszyklus).
+  - **Binary Sensor**: `dhw_boost` (Boost-Status), `heat_pump_compressor` (Verdichter aktiv/inaktiv), `heat_permit` (Wärmefreigabe aktiv), `pv_signal` (PV-Überschuss aktiv), `heat_requested` (Zentraler Wärmebedarf).
+  - **Switch**: `heat_pump_master` (Wärmepumpensteuerung aktivieren), `heat_pump_heating` (Heizungsautomatik), `heat_pump_dhw` (Warmwasserautomatik), `heat_pump_interlock` (Wärmefreigabe für Raumventile), `valve_maintenance` (Tägliche Ventilwartung aktivieren).
+  - **Number**: `master_offset` (Master-Sollwertverschiebung −5 bis +5 °C), `dhw_standard` / `boost` / `blocked` (Warmwassertemperaturen), `heating_curve_end` / `shift` / `correction` (Heizkurven-Parameter).
+  - **Sensor**: `mean_demand` (Mittlerer Hausbedarf %), `heating_rooms` (Heizende Räume), `demand_rooms` (Räume mit Wärmebedarf), `heat_pump_flow` / `return` / `mixed_flow` / `target` (Heizkreis- und Mischkreistemperaturen), `heat_pump_dhw_current` / `target` (Warmwasser Ist/Soll).
+
+Seit **2.4.0**: Umfassendes UI/UX-Redesign des gesamten Seitenleisten-Panels für optimale Übersicht und intuitive Bedienung (segmentierte Navigation, übersichtliche Raum- und Gruppenkarten, touch-optimierte Stepper und Wochenzeitpläne).
 
 Seit **2.3.3**: Alle Wärmepumpen-Zuordnungen, Statussensoren und die Wärmefreigabe sind im Tab **Wärmepumpe** gebündelt. Bestehende Zuordnungen bleiben erhalten. Der Tab **Einstellungen** enthält die globale Raumregelung und Ventilwartung.
 
@@ -51,7 +55,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.4.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.5.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 

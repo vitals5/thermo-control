@@ -9,3 +9,10 @@ set_master_offset:
           step: 0.5
           unit_of_measurement: "°C"
           mode: slider
+
+trigger_dhw_boost:
+
+cancel_dhw_boost:
+
+trigger_valve_maintenance:
+

@@ -16,7 +16,14 @@ from .services import async_register_services
 from .websocket import async_register_commands
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
-PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CLIMATE,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

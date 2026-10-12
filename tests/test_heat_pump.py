@@ -588,3 +588,74 @@ async def test_mixed_websocket_errors_and_admin(
         }
     )
     assert (await reader.receive_json())["error"]["code"] == "unauthorized"
+
+
+async def test_manual_dhw_boost_sets_boost_profile_and_clears_when_target_reached(
+    pump, hass, service_calls
+):
+    assert not pump.runtime.get("manual_dhw_boost")
+    assert pump.snapshot()["manual_dhw_boost"] is False
+
+    await pump.async_trigger_dhw_boost(True)
+    assert pump.runtime.get("manual_dhw_boost") is True
+    assert pump.snapshot()["manual_dhw_boost"] is True
+
+    await pump.async_reconcile()
+    assert pump.status["dhw"]["profile"] == "boost"
+    assert pump.status["dhw"]["manual_boost"] is True
+
+    dhw_entity = pump.config["dhw"]["entity"]
+    # Boost target is 55 °C. Set current DHW temperature to 55 °C.
+    hass.states.async_set(
+        dhw_entity,
+        "heat_pump",
+        {
+            "temperature": 55,
+            "current_temperature": 55,
+            "min_temp": 10,
+            "max_temp": 60,
+            "operation_mode": "heat_pump",
+            "operation_list": ["heat_pump", "off", "performance", "electric"],
+        },
+    )
+
+    await pump.async_reconcile()
+    # Boost has reached target and auto-cleared!
+    assert pump.runtime.get("manual_dhw_boost") is False
+    assert pump.snapshot()["manual_dhw_boost"] is False
+    assert pump.status["dhw"]["profile"] == "standard"
+    assert pump.status["dhw"]["manual_boost"] is False
+
+
+async def test_manual_dhw_boost_cancel(pump):
+    await pump.async_trigger_dhw_boost(True)
+    assert pump.runtime.get("manual_dhw_boost") is True
+
+    await pump.async_trigger_dhw_boost(False)
+    assert pump.runtime.get("manual_dhw_boost") is False
+    assert pump.snapshot()["manual_dhw_boost"] is False
+
+
+async def test_manual_dhw_boost_requires_enabled(pump):
+    pump.config["enabled"] = False
+    with pytest.raises(ServiceValidationError, match="Wärmepumpensteuerung ist nicht aktiviert"):
+        await pump.async_trigger_dhw_boost(True)
+
+    pump.config["enabled"] = True
+    pump.config["dhw"]["enabled"] = False
+    with pytest.raises(ServiceValidationError, match="Warmwasser-Kanal ist nicht aktiviert"):
+        await pump.async_trigger_dhw_boost(True)
+
+
+async def test_manual_dhw_boost_websocket_command(pump, hass, hass_ws_client):
+    async_register_commands(hass)
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "thermo_control/trigger_dhw_boost", "enable": True})
+    result = await client.receive_json()
+    assert result["success"]
+    assert pump.runtime.get("manual_dhw_boost") is True
+
+    await client.send_json({"id": 2, "type": "thermo_control/trigger_dhw_boost", "enable": False})
+    result = await client.receive_json()
+    assert result["success"]
+    assert pump.runtime.get("manual_dhw_boost") is False
