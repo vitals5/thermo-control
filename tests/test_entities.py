@@ -96,18 +96,24 @@ async def test_switch_platform_entities(manager, hass):
     assert manager.settings["heat_pump_control"]["dhw"]["enabled"] is True
 
     # Interlock switch
+    manager.settings["heat_pump"]["flow_sensor"] = "sensor.pump_flow"
+    manager.settings["heat_pump"]["mode_entity"] = "climate.pump_heating"
     assert hp_interlock.is_on is False
     await hp_interlock.async_turn_on()
     assert manager.settings["heat_pump"]["interlock"] is True
+    assert hp_interlock.is_on is True
     await hp_interlock.async_turn_off()
     assert manager.settings["heat_pump"]["interlock"] is False
+    assert hp_interlock.is_on is False
 
     # Valve maintenance switch
     assert valve_sw.is_on is False
     await valve_sw.async_turn_on()
     assert manager.settings["valve_maintenance"]["enabled"] is True
+    assert valve_sw.is_on is True
     await valve_sw.async_turn_off()
     assert manager.settings["valve_maintenance"]["enabled"] is False
+    assert valve_sw.is_on is False
 
 
 async def test_number_platform_entities(manager):
