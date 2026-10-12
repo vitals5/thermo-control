@@ -52,7 +52,19 @@ async def test_binary_sensor_platform_entities(manager):
     assert req_bs.unique_id == "thermo_control_heat_requested"
 
 
-async def test_switch_platform_entities(manager):
+async def test_switch_platform_entities(manager, hass):
+    config = manager.settings["heat_pump_control"]
+    config["heating"].update(
+        entity="climate.pump_heating",
+        end_entity="number.pump_end",
+        shift_entity="number.pump_shift",
+    )
+    config["dhw"].update(entity="water_heater.pump_water")
+    hass.states.async_set(config["heating"]["entity"], "heat")
+    hass.states.async_set(config["heating"]["end_entity"], "32")
+    hass.states.async_set(config["heating"]["shift_entity"], "21")
+    hass.states.async_set(config["dhw"]["entity"], "heat_pump")
+
     added = []
     entry = MagicMock()
     entry.runtime_data = manager

@@ -545,6 +545,7 @@ class HeatPumpController:
                 since = dt_util.parse_datetime(saved.get("since", ""))
                 if (
                     not manual_boost
+                    and not saved.get("manual")
                     and profile in ("standard", "boost")
                     and saved.get("profile") in ("standard", "boost")
                     and since
@@ -563,10 +564,11 @@ class HeatPumpController:
                 }
                 try:
                     commands = self._commands(channel, profile)  # Validate the whole channel first.
-                    if saved.get("profile") != profile:
+                    if saved.get("profile") != profile or saved.get("manual") != manual_boost:
                         self.runtime["channels"][channel] = {
                             "profile": profile,
                             "since": now.isoformat(),
+                            "manual": manual_boost,
                         }
                         try:
                             await self._save()
