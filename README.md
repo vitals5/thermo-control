@@ -5,9 +5,18 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.5.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.6.0`.
 
-Neu in **2.5.0**:
+Neu in **2.6.0**:
+- **Komplettes Panel-Redesign im Stil von `ha-school-grades`**:
+  - Neugestaltung des gesamten Seitenleisten-Panels in einem dunklen Slate- und Glassmorphism-Design (`#111827` Hintergrund, `#1f2937` Glaskarten mit feinen Konturen).
+  - Neuer Brand-Header mit radiantem Farbverlauf (`#38bdf8` nach `#f97316`) und 44×44px Aktionsbuttons mit Hover-Effekten.
+  - Überarbeitete Pill-Tab-Navigation mit Kapselbuttons und ausdrucksstarkem aktivem Tab.
+  - KPI-Summary-Banner (`#system-bar`) für zentrale Messwerte und Heizzustände mit hervorgehobener Primärkarte.
+  - Verfeinerte Raum- und Gruppenkarten mit dynamischem Umgebungsleuchten (`Glow`) bei aktiver Beheizung, transluzenten Sensor-Chips und modernisierten Touch-Steppern.
+  - Alle Formulare, Dialogfenster und Autocomplete-Picker an das dunkle Slate-Design mit weicher Hintergrundunschärfe angepasst.
+
+Seit **2.5.0**:
 - **Kombinierter Wärmepumpen-Graph**: Heizkreis-Vorlauf, Heizkreis-Rücklauf, Mischkreis-Vorlauf und Verdichterstatus in einem einzigen gemeinsamen Diagramm („Wärmepumpe: Alle Sensoren“). Einheitliche Temperaturskala für direkten Spreizungsvergleich, Schnellzugriff per Button („📈 Sensoren im Graph anzeigen“) aus dem Wärmepumpen-Editor und interaktiver Multi-Sensor-Tooltip.
 - **Manueller Brauchwasser (DHW) Boost**: Direkte Auslösung über Button-Entität (`button.thermo_control_dhw_boost`) oder im Wärmepumpen-Editor. Bleibt aktiv gesetzt, bis das Warmwasser auf die Soll-Boost-Temperatur aufgeheizt wurde, und schaltet sich anschließend automatisch ab.
 - **Vollständige Home-Assistant-Entitäten für alle Einstellungen & Statuswerte**:
@@ -55,7 +64,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.5.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.6.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 

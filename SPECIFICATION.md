@@ -1,4 +1,4 @@
-# Thermo Control 2.5.0 – Regelung und Panel
+# Thermo Control 2.6.0 – Regelung und Panel
 
 ## Architektur und Kompatibilität
 
