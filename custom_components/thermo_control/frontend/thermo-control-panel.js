@@ -494,11 +494,11 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       .fields,.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
       .status-grid div{font-size:11px;font-weight:700;color:var(--secondary-text-color,#9ca3af);text-transform:uppercase;letter-spacing:0.5px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px}
       .status-grid strong{display:block;font-size:20px;font-weight:800;color:#ffffff;margin-top:6px}
-      .profiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
-      .profiles fieldset{border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;min-width:0;background:rgba(255,255,255,0.02)}
-      .profiles legend{font-size:12px;font-weight:700;padding:0 6px;color:#60a5fa}
+      .profiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}
+      .profiles fieldset{border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:6px;min-width:0;background:rgba(255,255,255,0.02)}
+      .profiles legend{font-size:12px;font-weight:700;padding:0 4px;color:#60a5fa}
       .profiles label{font-size:11px;font-weight:600;margin-bottom:6px}
-      .profiles input{width:100%;min-height:38px;padding:6px 10px}
+      .profiles input{width:100%;min-height:36px;padding:6px 6px;min-width:0}
       .actions,.days{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
       .days button{border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)}
       .days button[aria-pressed=true]{background:linear-gradient(135deg,#2563eb,#1d4ed8);border-color:transparent;color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.35)}
@@ -510,7 +510,7 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       .blocks button:hover{background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.3)}
       .note{font-size:13px;font-weight:600;overflow-wrap:anywhere;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);margin:8px 0;color:#ffffff}
       .note:empty{display:none}
-      details{border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:16px 20px;margin:16px 0;background:rgba(255,255,255,0.02)}
+      details{border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 14px;margin:16px 0;background:rgba(255,255,255,0.02)}
       details summary{cursor:pointer;font-size:14px;font-weight:700;user-select:none;color:#ffffff}
       details .fields{margin-top:16px}
       input:focus,select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.25)}
