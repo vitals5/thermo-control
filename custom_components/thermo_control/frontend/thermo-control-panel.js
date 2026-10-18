@@ -30,7 +30,7 @@ const DEVICE_NUMBERS = [
 const CONTROL_VALUES = { tolerance: 0.2, trend_window: 45, inertia: 1, lookahead: 180, cycle_minutes: 45, minimum_on: 300, minimum_off: 300, proportional_band: 2, integral_hours: 6 };
 const CONTROL_NUMBERS = NUMBERS.filter(([key]) => key in CONTROL_VALUES);
 const MAINTENANCE_VALUES = { enabled: false, time: "12:00", duration: 180 };
-const PUMP_CONTROL_VALUES = {"name": "Wärmepumpe", "enabled": false, "pv_entity": null, "priority": "block", "pv_delay": 180, "minimum_hold": 600, "heating_mode": "automatic", "heating": {"enabled": true, "entity": null, "correction_entity": null, "end_entity": null, "shift_entity": null, "automatic_mode": "heat", "blocked_mode": "keep", "profiles": {"standard": {"end": 32, "shift": 21, "correction": 0}, "boost": {"end": 50, "shift": 30, "correction": 5}, "blocked": {"end": 20, "shift": 15, "correction": -5}}}, "dhw": {"enabled": true, "entity": null, "operation_mode": "", "profiles": {"standard": 42, "boost": 55, "blocked": 30}}, "return_sensor": null, "flow_sensor": null, "mixed_sensor": null, "mixed_end_entity": null, "mixed_shift_entity": null, "schedules": {"heating": {"enabled": false, "weekdays": {}}, "dhw": {"enabled": false, "weekdays": {}}}};
+const PUMP_CONTROL_VALUES = {"name": "Wärmepumpe", "enabled": false, "pv_entity": null, "priority": "block", "pv_delay": 180, "minimum_hold": 600, "heating_mode": "automatic", "heating": {"enabled": true, "entity": null, "correction_entity": null, "end_entity": null, "shift_entity": null, "automatic_mode": "heat", "blocked_mode": "keep", "profiles": {"standard": {"end": 32, "shift": 21, "correction": 0}, "boost": {"end": 50, "shift": 30, "correction": 5}, "blocked": {"end": 20, "shift": 15, "correction": -5}}, "demand_regulation": {"enabled": false, "target_position": 55, "deadband": 15, "min_correction": -3, "max_correction": 2, "dwell_minutes": 15, "step_size": 0.5}}, "dhw": {"enabled": true, "entity": null, "operation_mode": "", "profiles": {"standard": 42, "boost": 55, "blocked": 30}}, "return_sensor": null, "flow_sensor": null, "mixed_sensor": null, "mixed_end_entity": null, "mixed_shift_entity": null, "schedules": {"heating": {"enabled": false, "weekdays": {}}, "dhw": {"enabled": false, "weekdays": {}}}};
 const SYSTEM_VALUES = { heat_pump_control: PUMP_CONTROL_VALUES, valve_maintenance: MAINTENANCE_VALUES, master_offset: 0, calibration_interval: 600, control: CONTROL_VALUES, groups: [], heat_pump: { flow_sensor: null, target_sensor: null, mode_entity: null, compressor_entity: null, automatic_states: ["automatic", "automatik", "automatisch", "auto"], interlock: false, minimum_flow: 25, flow_margin: 2 } };
 const create = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -451,6 +451,22 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       const state = pump.channels?.[channel] || { profile: "disabled" };
       this.shadowRoot.querySelector(`#${channel}-status`).textContent = `${profiles[state.profile] || state.profile}${state.pending ? " · Rückmeldung ausstehend" : ""}${state.pv === null ? " · PV-Signal nicht verfügbar" : state.pv && !state.pv_ready ? " · PV-Verzögerung" : ""}${Object.values(state.errors || {}).length ? ` · ${Object.values(state.errors).join("; ")}` : ""}`;
     }
+    const demandBadge = this.shadowRoot.querySelector("#demand-regulation-badge");
+    const demandState = pump.demand_regulation;
+    if (demandBadge) {
+      if (demandState?.enabled) {
+        demandBadge.hidden = false;
+        demandBadge.style.display = "inline-flex";
+        const corr = demandState.correction ?? 0;
+        const sign = corr > 0 ? "+" : "";
+        const load = demandState.filter_load != null ? `${Math.round(demandState.filter_load)} %` : "—";
+        const room = demandState.critical_room ? ` · Leitraum: ${demandState.critical_room}` : "";
+        demandBadge.textContent = `🎯 Bedarfsregelung: ${sign}${corr.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C (Ventillast: ${load}${room})`;
+      } else {
+        demandBadge.hidden = true;
+        demandBadge.style.display = "none";
+      }
+    }
     const boostBtn = this.shadowRoot.querySelector("#dhw-boost-trigger"), boostBadge = this.shadowRoot.querySelector("#dhw-boost-badge");
     const isBoost = Boolean(pump.manual_dhw_boost);
     if (boostBtn) {
@@ -518,9 +534,10 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       #pump-block-editor{padding:18px;border:1px solid rgba(255,255,255,0.1);border-radius:14px;margin:16px 0;background:rgba(255,255,255,0.02)}
       @media(max-width:600px){form,section{padding:10px 12px;margin-bottom:12px;border-radius:12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:13px;margin:10px 0 6px}p{font-size:12px;line-height:1.4}label{font-size:12px;gap:4px;margin-bottom:8px}input,select,button{min-height:38px;padding:8px 10px;font-size:12px;border-radius:8px}.fields{grid-template-columns:minmax(0,1fr);gap:8px}.status-grid{gap:6px}.status-grid div{padding:8px 10px;border-radius:8px;font-size:10px}.status-grid strong{font-size:15px;margin-top:2px}.profiles{gap:4px;margin:8px 0}.profiles fieldset{padding:4px;border-radius:8px}.profiles legend{font-size:11px}.profiles label{font-size:10px;margin-bottom:4px}.profiles input{min-height:32px;padding:4px 6px;font-size:12px}.actions,.days{gap:4px;margin:8px 0}.days button{padding:4px 10px;font-size:11px}.timeline{height:46px;margin-top:10px;border-radius:8px}.blocks{grid-template-columns:minmax(0,1fr);gap:6px;margin:10px 0}.note{padding:8px 10px;border-radius:8px;margin:6px 0;font-size:12px}details{padding:10px;margin:10px 0;border-radius:10px}details summary{font-size:13px}details .fields{margin-top:10px}#pump-block-editor{padding:10px 12px;border-radius:10px;margin:10px 0}}
       @media(min-width:700px){.status-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
-    </style><section><h2 id="pump-title">Wärmepumpe</h2><div id="pump-status" class="status-grid"></div><div class="actions" style="margin:12px 0 0"><button type="button" id="pump-view-graph">📈 Sensoren im Graph anzeigen</button></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p><div class="actions" style="margin:8px 0 0;align-items:center"><button type="button" id="dhw-boost-trigger">⚡ Brauchwasser Boost manuell auslösen</button><span id="dhw-boost-badge" class="note" style="margin:0;align-items:center;display:none" hidden></span></div></section>
+    </style><section><h2 id="pump-title">Wärmepumpe</h2><div id="pump-status" class="status-grid"></div><div class="actions" style="margin:12px 0 0"><button type="button" id="pump-view-graph">📈 Sensoren im Graph anzeigen</button></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><span id="demand-regulation-badge" class="note" style="margin:4px 0 0;align-items:center;display:none" hidden></span><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p><div class="actions" style="margin:8px 0 0;align-items:center"><button type="button" id="dhw-boost-trigger">⚡ Brauchwasser Boost manuell auslösen</button><span id="dhw-boost-badge" class="note" style="margin:0;align-items:center;display:none" hidden></span></div></section>
     <form id="pump-form"><h2>Steuerung & Sollwerte</h2><label>Name der Wärmepumpe<input name="name" type="text" maxlength="80" required></label><label class="checkbox"><input name="enabled" type="checkbox">Wärmepumpensteuerung aktivieren</label><div class="fields"><label>Heizungsmodus<select name="heating_mode"><option value="automatic">Automatik</option><option value="off">Aus</option></select></label><label>Priorität<select name="priority"><option value="block">Zeitblockierung vor PV-Boost</option><option value="pv">PV-Boost vor Zeitblockierung</option></select></label><label>PV-Signal muss aktiv sein (s)<input name="pv_delay" type="number" min="0" max="1800" step="1" required></label><label>Mindesthaltezeit Standard / Boost (s)<input name="minimum_hold" type="number" min="60" max="3600" step="1" required></label></div>
     <label class="checkbox"><input name="heating_enabled" type="checkbox">Heizung automatisch steuern</label><div id="heating-profiles" class="profiles"></div><div class="fields"><label>Automatik in HA<select name="automatic_mode"></select></label><label>Heizung im Sperrzeitfenster<select name="blocked_mode"><option value="keep">Über Sollwerte / Heizkurve absenken</option><option value="off">Zusätzlich Heizungsmodus Aus</option></select></label></div>
+    <details id="demand-regulation-details"><summary>Bedarfsgeführte Vorlauf-Regelung (Thermostat-Rückkopplung)</summary><p class="help">Passt die Vorlauf-Korrektur der Wärmepumpe dynamisch an die Ventilstellungen der Raumthermostate an. Sind alle Thermostate weitgehend geschlossen, wird der Vorlauf schrittweise abgesenkt. Benötigt ein Raum viel Wärme, wird der Vorlauf angehoben. Ein Tiefpassfilter, Totband und Verweilzeit verhindern Aufschaukeln und Takten.</p><label class="checkbox"><input name="demand_regulation_enabled" type="checkbox">Bedarfsgeführte Vorlauf-Regelung aktivieren</label><div class="fields"><label>Ziel-Ventilöffnung (%)<input name="demand_target_position" type="number" min="10" max="90" step="1" required></label><label>Totband (±%)<input name="demand_deadband" type="number" min="0" max="40" step="1" required></label><label>Minimale Absenkung (°C)<input name="demand_min_correction" type="number" min="-5" max="0" step="0.5" required></label><label>Maximale Anhebung (°C)<input name="demand_max_correction" type="number" min="0" max="5" step="0.5" required></label><label>Verweilzeit zwischen Schritten (min)<input name="demand_dwell_minutes" type="number" min="5" max="120" step="1" required></label><label>Schrittweite (°C)<input name="demand_step_size" type="number" min="0.1" max="2" step="0.1" required></label></div></details>
     <label class="checkbox"><input name="dhw_enabled" type="checkbox">Warmwasser automatisch steuern</label><div id="dhw-profiles" class="profiles"></div><label>Warmwasser-Betriebsmodus<select name="operation_mode"></select></label><p class="help">PV-Boost erhöht die Sollwerte. Der Verdichter und interne Schutzfunktionen bleiben unter der geräteeigenen Regelung. Betriebsmodi werden aus den ausgewählten HA-Entitäten geladen. Blockierung über niedrigere Sollwerte ist eine Absenkung; für ein gezieltes Abschalten kann zusätzlich „Aus“ gewählt werden.</p>
     <details><summary>Entitäten zuordnen</summary><h3>Steuerung & Heizkreise</h3><div id="pump-pickers" class="fields"></div><p class="help">Die Heizungs-Climate muss eine Korrektur von −5 bis +5 °C bereitstellen. Zeigt sie einen Raum-Sollwert, ordne stattdessen eine Heizzielkorrektur-Number zu. Heizkurven- und Warmwasserwerte müssen innerhalb der Geräte-Grenzen liegen.</p><h3>Status, Diagramme & Raumfreigabe</h3><div id="pump-telemetry-pickers" class="fields"></div><p class="help">Verdichterstatus und Vorlauf-Soll dienen der Anzeige und den Diagrammen. Für Vorlauf-Ist und Betriebsmodus kannst du eine separate Statusquelle wählen. Ohne diese Zuordnung werden der Heizkreis-Vorlaufsensor und die Heizungs-Climate verwendet.</p></details>
     <details><summary>Wärmefreigabe für Raumventile</summary><p class="help">Die optionale Freigabe prüft Automatikmodus und verfügbare Vorlaufwärme, bevor die Raumventile Heizbedarf umsetzen. Die Wärmepumpe regelt ihren Verdichter weiterhin selbst.</p><div class="fields"><label>Automatik-Zustände (mit Komma trennen)<input name="automatic_states" required></label><label class="checkbox"><input name="interlock" type="checkbox">Wärmepumpen-Freigabe für Raumventile aktivieren</label><label>Minimaler warmer Vorlauf (°C)<input name="minimum_flow" type="number" required min="15" max="60" step="0.5"></label><label>Vorlauf über Raumtemperatur (°C)<input name="flow_margin" type="number" required min="0" max="15" step="0.5"></label></div></details>
@@ -571,6 +588,14 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       }
     }
     form.elements.blocked_mode.value = config.heating.blocked_mode;
+    const demand = config.heating?.demand_regulation || PUMP_CONTROL_VALUES.heating.demand_regulation;
+    form.elements.demand_regulation_enabled.checked = Boolean(demand.enabled);
+    form.elements.demand_target_position.value = demand.target_position ?? 55;
+    form.elements.demand_deadband.value = demand.deadband ?? 15;
+    form.elements.demand_min_correction.value = demand.min_correction ?? -3;
+    form.elements.demand_max_correction.value = demand.max_correction ?? 2;
+    form.elements.demand_dwell_minutes.value = demand.dwell_minutes ?? 15;
+    form.elements.demand_step_size.value = demand.step_size ?? 0.5;
     const pickers = root.querySelector("#pump-pickers"); pickers.replaceChildren();
     for (const [path, title, domains] of [["pv_entity", "PV-Ladesignal (optional)", ["input_boolean", "binary_sensor"]], ["heating.entity", "Heizungs-Climate", "climate"], ["heating.correction_entity", "Heizzielkorrektur-Number (optional)", "number"], ["heating.end_entity", "Heizkreis Heizkurven-Endpunkt", "number"], ["heating.shift_entity", "Heizkreis Parallelverschiebung", "number"], ["dhw.entity", "Warmwasser-Entität", "water_heater"], ["return_sensor", "Heizkreis Rücklaufsensor", "sensor"], ["flow_sensor", "Heizkreis Vorlaufsensor", "sensor"], ["mixed_sensor", "Mischkreis Vorlaufsensor", "sensor"], ["mixed_end_entity", "Mischkreis Heizkurven-Endpunkt", "number"], ["mixed_shift_entity", "Mischkreis Parallelverschiebung", "number"]]) {
       const picker = document.createElement("thermo-control-entity-picker"), [owner, key] = path.includes(".") ? path.split(".") : [null, path]; picker.dataset.path = path; picker.configure({ name: path, label: title, domain: domains, values: owner ? config[owner][key] : config[key], emptyLabel: "Keine Zuordnung" }); picker.hass = this._context.hass; picker.addEventListener("change", () => { this._dirty = true; this._updateModes(); }); pickers.append(picker);
@@ -635,6 +660,15 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
     for (const key of ["name", "enabled", "heating_mode", "priority", "pv_delay", "minimum_hold"]) { const field = form.elements[key]; config[key] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }
     for (const channel of ["heating", "dhw"]) { config[channel].enabled = form.elements[`${channel}_enabled`].checked; for (const profile of ["standard", "boost", "blocked"]) { if (channel === "heating") for (const key of ["end", "shift", "correction"]) config[channel].profiles[profile][key] = Number(form.elements[`${channel}_${profile}_${key}`].value); else config[channel].profiles[profile] = Number(form.elements[`${channel}_${profile}_temperature`].value); } }
     for (const key of ["automatic_mode", "blocked_mode"]) config.heating[key] = form.elements[key].value;
+    config.heating.demand_regulation = {
+      enabled: form.elements.demand_regulation_enabled.checked,
+      target_position: Number(form.elements.demand_target_position.value),
+      deadband: Number(form.elements.demand_deadband.value),
+      min_correction: Number(form.elements.demand_min_correction.value),
+      max_correction: Number(form.elements.demand_max_correction.value),
+      dwell_minutes: Math.round(Number(form.elements.demand_dwell_minutes.value)),
+      step_size: Number(form.elements.demand_step_size.value)
+    };
     config.dhw.operation_mode = form.elements.operation_mode.value;
     const telemetry = structuredClone(this._telemetryDraft);
     for (const picker of form.querySelectorAll("thermo-control-entity-picker")) { picker.commit(); if (!picker.reportValidity()) return; if (picker.dataset.telemetry) { telemetry[picker.dataset.telemetry] = picker.value || null; continue; } const [owner, key] = picker.dataset.path.includes(".") ? picker.dataset.path.split(".") : [null, picker.dataset.path]; if (owner) config[owner][key] = picker.value || null; else config[key] = picker.value || null; }
@@ -1575,8 +1609,16 @@ class ThermoControlPanel extends HTMLElement {
       const item = create("span", name); item.append(create("strong", value)); bar.append(item);
     }
     const pump = this._data.heat_pump;
-    if (pump) for (const [name, value] of [["Rücklauf", temperature(pump.return)], ["Warmwasser Ist / Soll", `${temperature(pump.dhw_temperature)} / ${temperature(pump.dhw_target)}`], [`${pump.name || "Wärmepumpe"} · Steuerung`, pump.enabled ? ({standard: "Standard", boost: "PV-Boost", blocked: "Blockiert", off: "Aus", disabled: "Deaktiviert"}[pump.channels?.heating?.profile] || "—") : "Deaktiviert"]]) {
-      const item = create("span", name); item.append(create("strong", value)); bar.append(item);
+    if (pump) {
+      const items = [["Rücklauf", temperature(pump.return)], ["Warmwasser Ist / Soll", `${temperature(pump.dhw_temperature)} / ${temperature(pump.dhw_target)}`], [`${pump.name || "Wärmepumpe"} · Steuerung`, pump.enabled ? ({standard: "Standard", boost: "PV-Boost", blocked: "Blockiert", off: "Aus", disabled: "Deaktiviert"}[pump.channels?.heating?.profile] || "—") : "Deaktiviert"]];
+      if (pump.demand_regulation?.enabled) {
+        const corr = pump.demand_regulation.correction ?? 0;
+        const sign = corr > 0 ? "+" : "";
+        items.push(["Bedarfskorrektur", `${sign}${corr.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`]);
+      }
+      for (const [name, value] of items) {
+        const item = create("span", name); item.append(create("strong", value)); bar.append(item);
+      }
     }
     const slider = root.querySelector("#master-offset"); if (root.activeElement !== slider) { slider.value = this._data.settings?.master_offset || 0; root.querySelector("#master-value").textContent = `${Number(slider.value).toLocaleString("de-DE")} °C`; }
     for (const card of root.querySelectorAll("[data-group-id]")) {

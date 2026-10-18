@@ -217,6 +217,72 @@ test("heat pump presets and separate weekly blocking plans are saved", async ({ 
   expect(config.dhw.entity).toBe("water_heater.pump_water");
 });
 
+test("heat pump demand regulation settings can be configured, saved and show status badge", async ({ page }) => {
+  const editor = await mountPump(page);
+  await editor.getByText("Bedarfsgeführte Vorlauf-Regelung (Thermostat-Rückkopplung)").click();
+  const enabledCheckbox = editor.getByLabel("Bedarfsgeführte Vorlauf-Regelung aktivieren", { exact: true });
+  await expect(enabledCheckbox).not.toBeChecked();
+  await enabledCheckbox.check();
+
+  const targetInput = editor.getByLabel("Ziel-Ventilöffnung (%)", { exact: true });
+  await expect(targetInput).toHaveValue("55");
+  await targetInput.fill("60");
+
+  const deadbandInput = editor.getByLabel("Totband (±%)", { exact: true });
+  await expect(deadbandInput).toHaveValue("15");
+  await deadbandInput.fill("10");
+
+  const minCorrectionInput = editor.getByLabel("Minimale Absenkung (°C)", { exact: true });
+  await expect(minCorrectionInput).toHaveValue("-3");
+  await minCorrectionInput.fill("-2.5");
+
+  const maxCorrectionInput = editor.getByLabel("Maximale Anhebung (°C)", { exact: true });
+  await expect(maxCorrectionInput).toHaveValue("2");
+  await maxCorrectionInput.fill("1.5");
+
+  const dwellInput = editor.getByLabel("Verweilzeit zwischen Schritten (min)", { exact: true });
+  await expect(dwellInput).toHaveValue("15");
+  await dwellInput.fill("20");
+
+  const stepInput = editor.getByLabel("Schrittweite (°C)", { exact: true });
+  await expect(stepInput).toHaveValue("0.5");
+  await stepInput.fill("0.4");
+
+  await editor.getByRole("button", { name: "Wärmepumpeneinstellungen speichern", exact: true }).click();
+  await expect(editor.getByText("Wärmepumpeneinstellungen gespeichert.", { exact: true })).toBeVisible();
+
+  const config = await page.evaluate(() => window.messages.find((message) => message.type === "thermo_control/save_settings").config.heat_pump_control);
+  expect(config.heating.demand_regulation).toEqual({
+    enabled: true,
+    target_position: 60,
+    deadband: 10,
+    min_correction: -2.5,
+    max_correction: 1.5,
+    dwell_minutes: 20,
+    step_size: 0.4,
+  });
+
+  await page.evaluate(() => {
+    window.updateSnapshot({
+      heat_pump: {
+        ...window.panel._data.heat_pump,
+        demand_regulation: {
+          enabled: true,
+          correction: -1.5,
+          filter_load: 35.2,
+          critical_room: "Wohnzimmer",
+        },
+      },
+    });
+  });
+
+  const badge = editor.locator("#demand-regulation-badge");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("-1,5 °C");
+  await expect(badge).toContainText("Ventillast: 35 %");
+  await expect(badge).toContainText("Leitraum: Wohnzimmer");
+});
+
 test("heat pump visual editor edits overnight blocks for selected weekdays", async ({ page }) => {
   const editor = await mountPump(page);
   await editor.getByRole("button", {name: "Sa–So", exact: true}).click();

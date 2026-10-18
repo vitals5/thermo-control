@@ -32,6 +32,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
             HeatingCurveEndNumber(manager),
             HeatingCurveShiftNumber(manager),
             HeatingCurveCorrectionNumber(manager),
+            HeatPumpDemandTargetPositionNumber(manager),
+            HeatPumpDemandMinCorrectionNumber(manager),
+            HeatPumpDemandMaxCorrectionNumber(manager),
         ]
     )
 
@@ -217,3 +220,97 @@ class HeatingCurveCorrectionNumber(BaseThermoControlNumber):
             settings["heat_pump_control"]["heating"]["profiles"]["standard"]["correction"] = value
 
         await self.manager.async_update_setting(update)
+
+
+class HeatPumpDemandTargetPositionNumber(NumberEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_native_unit_of_measurement = "%"
+    _attr_native_step = 1.0
+    _attr_native_min_value = 10.0
+    _attr_native_max_value = 90.0
+    _attr_icon = "mdi:valve"
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_demand_target_position"
+        self._attr_name = "Thermo Control Wärmepumpe Bedarfs-Zielventilöffnung"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self) -> float:
+        return float(
+            self.manager.settings["heat_pump_control"]["heating"]
+            .get("demand_regulation", {})
+            .get("target_position", 55.0)
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        def set_val(settings):
+            settings["heat_pump_control"]["heating"].setdefault("demand_regulation", {})[
+                "target_position"
+            ] = value
+
+        await self.manager.async_update_setting(set_val)
+
+
+class HeatPumpDemandMinCorrectionNumber(BaseThermoControlNumber):
+    def __init__(self, manager):
+        super().__init__(
+            manager,
+            "heat_pump_demand_min_correction",
+            "Thermo Control Wärmepumpe Bedarfs-Min-Korrektur",
+            "mdi:thermometer-minus",
+            -5.0,
+            0.0,
+        )
+
+    @property
+    def native_value(self) -> float:
+        return float(
+            self.manager.settings["heat_pump_control"]["heating"]
+            .get("demand_regulation", {})
+            .get("min_correction", -3.0)
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        def set_val(settings):
+            settings["heat_pump_control"]["heating"].setdefault("demand_regulation", {})[
+                "min_correction"
+            ] = value
+
+        await self.manager.async_update_setting(set_val)
+
+
+class HeatPumpDemandMaxCorrectionNumber(BaseThermoControlNumber):
+    def __init__(self, manager):
+        super().__init__(
+            manager,
+            "heat_pump_demand_max_correction",
+            "Thermo Control Wärmepumpe Bedarfs-Max-Korrektur",
+            "mdi:thermometer-plus",
+            0.0,
+            5.0,
+        )
+
+    @property
+    def native_value(self) -> float:
+        return float(
+            self.manager.settings["heat_pump_control"]["heating"]
+            .get("demand_regulation", {})
+            .get("max_correction", 2.0)
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        def set_val(settings):
+            settings["heat_pump_control"]["heating"].setdefault("demand_regulation", {})[
+                "max_correction"
+            ] = value
+
+        await self.manager.async_update_setting(set_val)

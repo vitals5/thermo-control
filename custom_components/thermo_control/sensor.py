@@ -46,6 +46,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
             HeatPumpTargetSensor(manager),
             HeatPumpDHWCurrentSensor(manager),
             HeatPumpDHWTargetSensor(manager),
+            HeatPumpDemandCorrectionSensor(manager),
+            HeatPumpValveLoadSensor(manager),
         ]
     )
     async_add_entities(entities)
@@ -267,3 +269,58 @@ class HeatPumpDHWTargetSensor(HeatPumpTemperatureSensor):
             "Thermo Control Warmwasser Soll",
             lambda m: m.heat_pump.snapshot().get("dhw_target"),
         )
+
+
+class HeatPumpDemandCorrectionSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:thermometer-auto"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_demand_correction"
+        self._attr_name = "Thermo Control Wärmepumpe Bedarfs-Korrektur"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        dem_reg = self.manager.heat_pump.snapshot().get("demand_regulation", {})
+        return dem_reg.get("correction", 0.0)
+
+    @property
+    def extra_state_attributes(self):
+        return self.manager.heat_pump.snapshot().get("demand_regulation", {})
+
+
+class HeatPumpValveLoadSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:valve"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_valve_load"
+        self._attr_name = "Thermo Control Wärmepumpe Ventillast"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        dem_reg = self.manager.heat_pump.snapshot().get("demand_regulation", {})
+        return dem_reg.get("filter_load")

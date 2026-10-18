@@ -1,5 +1,7 @@
 """Generic heat-pump telemetry, heat availability and aggregate demand."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN

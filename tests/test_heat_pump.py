@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -588,6 +588,8 @@ async def test_mixed_websocket_errors_and_admin(
         }
     )
     assert (await reader.receive_json())["error"]["code"] == "unauthorized"
+    await client.close()
+    await reader.close()
 
 
 async def test_manual_dhw_boost_sets_boost_profile_and_clears_when_target_reached(
@@ -659,3 +661,245 @@ async def test_manual_dhw_boost_websocket_command(pump, hass, hass_ws_client):
     result = await client.receive_json()
     assert result["success"]
     assert pump.runtime.get("manual_dhw_boost") is False
+
+
+async def test_validate_pump_control_demand_regulation(hass):
+    config = deepcopy(HEAT_PUMP_CONTROL_DEFAULTS)
+    heating = config["heating"]
+    assert "demand_regulation" in heating
+
+    # Invalid target_position
+    bad = deepcopy(config)
+    bad["heating"]["demand_regulation"]["target_position"] = 99.0
+    with pytest.raises(ServiceValidationError, match="Ungültiger Wert für target_position"):
+        validate_pump_control(hass, bad, check_entities=False)
+
+    # Invalid deadband
+    bad = deepcopy(config)
+    bad["heating"]["demand_regulation"]["deadband"] = 50.0
+    with pytest.raises(ServiceValidationError, match="Ungültiger Wert für deadband"):
+        validate_pump_control(hass, bad, check_entities=False)
+
+    # min_correction >= max_correction
+    bad = deepcopy(config)
+    bad["heating"]["demand_regulation"]["min_correction"] = 2.0
+    bad["heating"]["demand_regulation"]["max_correction"] = 1.0
+    with pytest.raises(ServiceValidationError, match="Ungültiger Wert für min_correction"):
+        validate_pump_control(hass, bad, check_entities=False)
+
+    bad = deepcopy(config)
+    bad["heating"]["demand_regulation"]["min_correction"] = 0.0
+    bad["heating"]["demand_regulation"]["max_correction"] = 0.0
+    with pytest.raises(
+        ServiceValidationError, match="Minimale Korrektur muss kleiner als maximale"
+    ):
+        validate_pump_control(hass, bad, check_entities=False)
+
+    # Invalid dwell_minutes
+    bad = deepcopy(config)
+    bad["heating"]["demand_regulation"]["dwell_minutes"] = 0
+    with pytest.raises(ServiceValidationError, match="Ungültige Verweilzeit"):
+        validate_pump_control(hass, bad, check_entities=False)
+
+
+async def test_demand_regulation_closed_valves_dials_back(pump, hass, freezer, service_calls):
+    # Enable demand regulation with 15 min dwell
+    settings = deepcopy(pump.manager.settings)
+    settings["heat_pump_control"]["heating"]["demand_regulation"].update(
+        enabled=True,
+        target_position=55.0,
+        deadband=15.0,
+        min_correction=-3.0,
+        max_correction=2.0,
+        dwell_minutes=15,
+        step_size=0.5,
+    )
+    await pump.manager.async_save_settings(settings, pump.manager.revision)
+    await hass.async_block_till_done()
+    service_calls.clear()
+
+    # Create a mock room coordinator with closed valves
+    room_mock = MagicMock()
+    room_mock.entity_id = "climate.living"
+    coord_mock = MagicMock()
+    coord_mock.window_blocked = False
+    coord_mock.config = {"name": "Wohnzimmer"}
+    coord_mock.data = {
+        "available": True,
+        "mode": "heat",
+        "position": 5.0,
+        "temperature": 22.0,
+        "target": 20.0,
+        "temperature_rate": 0.0,
+    }
+    coord_mock._tick = AsyncMock()
+    coord_mock.async_shutdown = AsyncMock()
+    room_mock.coordinator = coord_mock
+    pump.manager.entities = {"living": room_mock}
+
+    # Initial reconcile filters the load
+    await pump.async_reconcile()
+    snap = pump.snapshot()
+    assert snap["demand_regulation"]["enabled"] is True
+    assert snap["demand_regulation"]["critical_room"] == "Wohnzimmer"
+
+    # Fast forward past dwell time (15 min)
+    freezer.tick(901)
+    await pump.async_reconcile()
+
+    # Dynamic correction stepped down by 0.5 °C
+    assert pump.runtime["demand_regulation"]["correction"] == -0.5
+    snap = pump.snapshot()
+    assert snap["demand_regulation"]["correction"] == -0.5
+    # Verify command was sent to correction entity (0 + (-0.5) = -0.5)
+    last_climate_call = [
+        c for c in service_calls if c[2]["entity_id"] == pump.config["heating"]["entity"]
+    ]
+    assert last_climate_call[-1][2]["temperature"] == -0.5
+
+    # Fast forward another 15 min
+    freezer.tick(901)
+    await pump.async_reconcile()
+    assert pump.runtime["demand_regulation"]["correction"] == -1.0
+
+
+async def test_demand_regulation_starving_valves_boosts(pump, hass, freezer, service_calls):
+    settings = deepcopy(pump.manager.settings)
+    settings["heat_pump_control"]["heating"]["demand_regulation"].update(
+        enabled=True,
+        target_position=55.0,
+        deadband=15.0,
+        min_correction=-3.0,
+        max_correction=2.0,
+        dwell_minutes=15,
+        step_size=0.5,
+    )
+    await pump.manager.async_save_settings(settings, pump.manager.revision)
+    await hass.async_block_till_done()
+    service_calls.clear()
+
+    # Room is starving: valve at 100%, temperature below target
+    room_mock = MagicMock()
+    room_mock.entity_id = "climate.living"
+    coord_mock = MagicMock()
+    coord_mock.window_blocked = False
+    coord_mock.config = {"name": "Wohnzimmer"}
+    coord_mock.data = {
+        "available": True,
+        "mode": "heat",
+        "position": 100.0,
+        "temperature": 18.0,
+        "target": 21.0,
+        "temperature_rate": 0.0,
+    }
+    coord_mock._tick = AsyncMock()
+    coord_mock.async_shutdown = AsyncMock()
+    room_mock.coordinator = coord_mock
+    pump.manager.entities = {"living": room_mock}
+
+    await pump.async_reconcile()
+    freezer.tick(901)
+    await pump.async_reconcile()
+
+    assert pump.runtime["demand_regulation"]["correction"] == 0.5
+    last_call = [c for c in service_calls if c[2]["entity_id"] == pump.config["heating"]["entity"]][
+        -1
+    ]
+    assert last_call[2]["temperature"] == 0.5
+
+
+async def test_demand_regulation_anti_hunting_prevents_boost_when_satisfied_or_warming(
+    pump, hass, freezer, service_calls
+):
+    settings = deepcopy(pump.manager.settings)
+    settings["heat_pump_control"]["heating"]["demand_regulation"].update(
+        enabled=True,
+        target_position=55.0,
+        deadband=15.0,
+        dwell_minutes=15,
+        step_size=0.5,
+    )
+    await pump.manager.async_save_settings(settings, pump.manager.revision)
+    await hass.async_block_till_done()
+
+    # Valve is open (90%), but room is already at setpoint (21.5 >= 21.0)
+    room_mock = MagicMock()
+    room_mock.entity_id = "climate.living"
+    coord_mock = MagicMock()
+    coord_mock.window_blocked = False
+    coord_mock.config = {"name": "Wohnzimmer"}
+    coord_mock.data = {
+        "available": True,
+        "mode": "heat",
+        "position": 90.0,
+        "temperature": 21.5,
+        "target": 21.0,
+        "temperature_rate": 0.0,
+    }
+    coord_mock._tick = AsyncMock()
+    coord_mock.async_shutdown = AsyncMock()
+    room_mock.coordinator = coord_mock
+    pump.manager.entities = {"living": room_mock}
+
+    await pump.async_reconcile()
+    freezer.tick(901)
+    await pump.async_reconcile()
+
+    # Correction should NOT boost because room is satisfied!
+    assert pump.runtime["demand_regulation"]["correction"] == 0.0
+
+    # Valve is open (90%), temperature below setpoint (20.0 < 21.0), but warming rapidly (+0.5 °C/h)
+    coord_mock.data["temperature"] = 20.0
+    coord_mock.data["temperature_rate"] = 0.5
+
+    freezer.tick(901)
+    await pump.async_reconcile()
+
+    # Correction still should NOT boost to prevent overshoot!
+    assert pump.runtime["demand_regulation"]["correction"] == 0.0
+
+
+async def test_demand_regulation_deadband_and_pv_override(pump, hass, freezer, service_calls):
+    settings = deepcopy(pump.manager.settings)
+    settings["heat_pump_control"]["heating"]["demand_regulation"].update(
+        enabled=True,
+        target_position=55.0,
+        deadband=15.0,
+        dwell_minutes=15,
+        step_size=0.5,
+    )
+    await pump.manager.async_save_settings(settings, pump.manager.revision)
+    await hass.async_block_till_done()
+
+    # Valve at 55% (deadband is 40% to 70%)
+    room_mock = MagicMock()
+    room_mock.entity_id = "climate.living"
+    coord_mock = MagicMock()
+    coord_mock.window_blocked = False
+    coord_mock.config = {"name": "Wohnzimmer"}
+    coord_mock.data = {
+        "available": True,
+        "mode": "heat",
+        "position": 55.0,
+        "temperature": 20.0,
+        "target": 20.0,
+        "temperature_rate": 0.0,
+    }
+    coord_mock._tick = AsyncMock()
+    coord_mock.async_shutdown = AsyncMock()
+    room_mock.coordinator = coord_mock
+    pump.manager.entities = {"living": room_mock}
+
+    await pump.async_reconcile()
+    freezer.tick(901)
+    await pump.async_reconcile()
+
+    assert pump.runtime["demand_regulation"]["correction"] == 0.0
+
+    # When PV boost triggers, boost profile (+5) overrides
+    service_calls.clear()
+    await boost(pump, hass, freezer)
+    last_call = [c for c in service_calls if c[2]["entity_id"] == pump.config["heating"]["entity"]][
+        -1
+    ]
+    assert last_call[2]["temperature"] == 5.0

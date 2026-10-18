@@ -29,6 +29,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             HeatPumpMasterSwitch(manager),
             HeatPumpHeatingSwitch(manager),
             HeatPumpDHWSwitch(manager),
+            HeatPumpDemandRegulationSwitch(manager),
             HeatPumpInterlockSwitch(manager),
             ValveMaintenanceSwitch(manager),
         ]
@@ -180,5 +181,39 @@ class ValveMaintenanceSwitch(BaseThermoControlSwitch):
     async def async_turn_off(self, **kwargs: Any) -> None:
         def disable(settings):
             settings["valve_maintenance"]["enabled"] = False
+
+        await self.manager.async_update_setting(disable)
+
+
+class HeatPumpDemandRegulationSwitch(BaseThermoControlSwitch):
+    def __init__(self, manager):
+        super().__init__(
+            manager,
+            "heat_pump_demand_regulation_enabled",
+            "Thermo Control Wärmepumpe Bedarfsregelung",
+            "mdi:thermostat-auto",
+        )
+
+    @property
+    def is_on(self) -> bool:
+        return bool(
+            self.manager.settings["heat_pump_control"]["heating"]
+            .get("demand_regulation", {})
+            .get("enabled", False)
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        def enable(settings):
+            settings["heat_pump_control"]["heating"].setdefault("demand_regulation", {})[
+                "enabled"
+            ] = True
+
+        await self.manager.async_update_setting(enable)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        def disable(settings):
+            settings["heat_pump_control"]["heating"].setdefault("demand_regulation", {})[
+                "enabled"
+            ] = False
 
         await self.manager.async_update_setting(disable)

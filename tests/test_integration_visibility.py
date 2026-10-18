@@ -3,12 +3,19 @@
 from unittest.mock import AsyncMock, patch
 
 from homeassistant import loader
-from homeassistant.components.frontend import async_panel_exists
 from homeassistant.config_entries import SOURCE_USER, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.thermo_control.const import DOMAIN, NAME
+
+try:
+    from homeassistant.components.frontend import async_panel_exists
+except ImportError:
+
+    def async_panel_exists(hass, url_path: str) -> bool:
+        return url_path in hass.data.get("frontend_panels", {})
+
 
 # The integration overview subscribes to exactly these types; helpers are separate.
 INTEGRATION_TYPES = ["device", "hub", "service", "hardware"]

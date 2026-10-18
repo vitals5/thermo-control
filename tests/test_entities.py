@@ -69,9 +69,9 @@ async def test_switch_platform_entities(manager, hass):
     entry = MagicMock()
     entry.runtime_data = manager
     await switch.async_setup_entry(manager.hass, entry, added.extend)
-    assert len(added) == 5
+    assert len(added) == 6
 
-    hp_master, hp_heating, hp_dhw, hp_interlock, valve_sw = added
+    hp_master, hp_heating, hp_dhw, hp_demand_reg, hp_interlock, valve_sw = added
 
     # Master switch
     assert hp_master.is_on is False
@@ -94,6 +94,15 @@ async def test_switch_platform_entities(manager, hass):
     assert manager.settings["heat_pump_control"]["dhw"]["enabled"] is False
     await hp_dhw.async_turn_on()
     assert manager.settings["heat_pump_control"]["dhw"]["enabled"] is True
+
+    # Demand regulation switch
+    assert hp_demand_reg.is_on is False
+    await hp_demand_reg.async_turn_on()
+    assert manager.settings["heat_pump_control"]["heating"]["demand_regulation"]["enabled"] is True
+    assert hp_demand_reg.is_on is True
+    await hp_demand_reg.async_turn_off()
+    assert manager.settings["heat_pump_control"]["heating"]["demand_regulation"]["enabled"] is False
+    assert hp_demand_reg.is_on is False
 
     # Interlock switch
     manager.settings["heat_pump"]["flow_sensor"] = "sensor.pump_flow"
@@ -121,9 +130,20 @@ async def test_number_platform_entities(manager):
     entry = MagicMock()
     entry.runtime_data = manager
     await number.async_setup_entry(manager.hass, entry, added.extend)
-    assert len(added) == 7
+    assert len(added) == 10
 
-    offset, dhw_std, dhw_boost, dhw_block, curve_end, curve_shift, curve_corr = added
+    (
+        offset,
+        dhw_std,
+        dhw_boost,
+        dhw_block,
+        curve_end,
+        curve_shift,
+        curve_corr,
+        demand_target_pos,
+        demand_min_corr,
+        demand_max_corr,
+    ) = added
 
     # Master offset
     assert offset.native_value == 0.0
@@ -159,14 +179,36 @@ async def test_number_platform_entities(manager):
         == 2.0
     )
 
+    # Demand regulation numbers
+    assert demand_target_pos.native_value == 55.0
+    await demand_target_pos.async_set_native_value(60.0)
+    assert (
+        manager.settings["heat_pump_control"]["heating"]["demand_regulation"]["target_position"]
+        == 60.0
+    )
+
+    assert demand_min_corr.native_value == -3.0
+    await demand_min_corr.async_set_native_value(-2.5)
+    assert (
+        manager.settings["heat_pump_control"]["heating"]["demand_regulation"]["min_correction"]
+        == -2.5
+    )
+
+    assert demand_max_corr.native_value == 2.0
+    await demand_max_corr.async_set_native_value(1.5)
+    assert (
+        manager.settings["heat_pump_control"]["heating"]["demand_regulation"]["max_correction"]
+        == 1.5
+    )
+
 
 async def test_expanded_sensor_platform_entities(manager):
     added = []
     entry = MagicMock()
     entry.runtime_data = manager
     await sensor.async_setup_entry(manager.hass, entry, added.extend)
-    # 2 demand + 2 pump control + 3 statistics + 6 heat pump temperature sensors = 13 sensors
-    assert len(added) == 13
+    # 2 demand + 2 pump control + 3 statistics + 6 heat pump temperature sensors + 2 demand reg = 15 sensors
+    assert len(added) == 15
 
     unique_ids = {s.unique_id for s in added}
     assert "thermo_control_demand" in unique_ids
@@ -182,3 +224,5 @@ async def test_expanded_sensor_platform_entities(manager):
     assert "thermo_control_heat_pump_target" in unique_ids
     assert "thermo_control_heat_pump_dhw_temperature" in unique_ids
     assert "thermo_control_heat_pump_dhw_target" in unique_ids
+    assert "thermo_control_heat_pump_demand_correction" in unique_ids
+    assert "thermo_control_heat_pump_valve_load" in unique_ids

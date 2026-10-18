@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import callback
@@ -84,7 +85,11 @@ def validate_pump_control(hass, config, *, check_entities=True):
         if key in CHANNELS:
             if not isinstance(value, dict) or not set(value) <= set(result[key]):
                 raise ServiceValidationError("Ungültige Kanal-Einstellungen.")
-            result[key].update(deepcopy(value))
+            for sub_k, sub_v in value.items():
+                if sub_k == "demand_regulation" and isinstance(sub_v, dict):
+                    result[key]["demand_regulation"].update(deepcopy(sub_v))
+                else:
+                    result[key][sub_k] = deepcopy(sub_v)
         else:
             result[key] = deepcopy(value)
     if not isinstance(result["name"], str) or not 1 <= len(result["name"].strip()) <= 80:
@@ -139,6 +144,32 @@ def validate_pump_control(hass, config, *, check_entities=True):
         if value is None or not 10 <= value <= 65:
             raise ServiceValidationError("Warmwasser-Sollwert muss zwischen 10 und 65 °C liegen.")
         dhw["profiles"][profile] = value
+    demand_reg = heating.get("demand_regulation")
+    if not isinstance(demand_reg, dict) or not set(demand_reg) <= set(
+        HEAT_PUMP_CONTROL_DEFAULTS["heating"]["demand_regulation"]
+    ):
+        raise ServiceValidationError("Ungültige Bedarfsregelungs-Einstellungen.")
+    if type(demand_reg.get("enabled")) is not bool:
+        raise ServiceValidationError("Bedarfsregelung: Aktivierung muss ein Wahrheitswert sein.")
+    for key, low, high in (
+        ("target_position", 10.0, 90.0),
+        ("deadband", 2.0, 40.0),
+        ("min_correction", -5.0, 0.0),
+        ("max_correction", 0.0, 5.0),
+        ("step_size", 0.1, 2.0),
+    ):
+        val = finite(demand_reg.get(key))
+        if val is None or not low <= val <= high:
+            raise ServiceValidationError(f"Bedarfsregelung: Ungültiger Wert für {key}")
+        demand_reg[key] = float(val)
+    dwell = finite(demand_reg.get("dwell_minutes"))
+    if dwell is None or not 1 <= dwell <= 120 or dwell % 1:
+        raise ServiceValidationError("Bedarfsregelung: Ungültige Verweilzeit in Minuten.")
+    demand_reg["dwell_minutes"] = int(dwell)
+    if demand_reg["min_correction"] >= demand_reg["max_correction"]:
+        raise ServiceValidationError(
+            "Bedarfsregelung: Minimale Korrektur muss kleiner als maximale Korrektur sein."
+        )
     schedules = result["schedules"]
     if not isinstance(schedules, dict) or set(schedules) != set(CHANNELS):
         raise ServiceValidationError("Zeitpläne für Heizung und Warmwasser sind erforderlich.")
@@ -199,7 +230,18 @@ class HeatPumpController:
     def __init__(self, manager):
         self.manager, self.hass = manager, manager.hass
         self._store = Store(self.hass, 1, "thermo_control.heat_pump")
-        self.runtime = {"writes": {}, "channels": {}, "baseline": {}, "manual_dhw_boost": False}
+        self.runtime = {
+            "writes": {},
+            "channels": {},
+            "baseline": {},
+            "manual_dhw_boost": False,
+            "demand_regulation": {
+                "filter_load": None,
+                "correction": 0.0,
+                "last_adjustment": None,
+                "last_filter_update": None,
+            },
+        }
         self.status = {
             channel: {"profile": "disabled", "errors": {}, "pending": False} for channel in CHANNELS
         }
@@ -207,6 +249,7 @@ class HeatPumpController:
         self._unsubscribers = []
         self._pv_sample = None
         self._pv_since = None
+        self._last_critical_room = None
 
     @property
     def config(self):
@@ -216,6 +259,15 @@ class HeatPumpController:
         if stored := await self._store.async_load():
             self.runtime.update(stored)
         self.runtime.setdefault("manual_dhw_boost", False)
+        self.runtime.setdefault(
+            "demand_regulation",
+            {
+                "filter_load": None,
+                "correction": 0.0,
+                "last_adjustment": None,
+                "last_filter_update": None,
+            },
+        )
 
     async def async_trigger_dhw_boost(self, enable: bool = True) -> None:
         """Trigger or cancel manual DHW boost."""
@@ -350,12 +402,16 @@ class HeatPumpController:
         if profile == "off":
             return [self._mode_command(config["entity"], "off", "climate")]
         values = config["profiles"][profile]
+        correction_value = values["correction"]
+        if profile == "standard" and config.get("demand_regulation", {}).get("enabled"):
+            dynamic_corr = self.runtime.get("demand_regulation", {}).get("correction", 0.0)
+            correction_value = max(-5.0, min(5.0, round(correction_value + dynamic_corr, 1)))
         commands = [
             self._temperature_command(config["end_entity"], values["end"], "number"),
             self._temperature_command(config["shift_entity"], values["shift"], "number"),
             self._temperature_command(
                 config["correction_entity"] or config["entity"],
-                values["correction"],
+                correction_value,
                 "number" if config["correction_entity"] else "climate",
                 correction=True,
             ),
@@ -370,6 +426,154 @@ class HeatPumpController:
         else:
             commands.append(self._mode_command(config["entity"], mode, "climate"))
         return commands
+
+    async def _update_demand_regulation(self, now: datetime) -> None:
+        """Dynamically regulate heat pump setpoint correction based on room demands."""
+        heating_cfg = self.config["heating"]
+        reg_cfg = heating_cfg.get("demand_regulation", {})
+        reg_state = self.runtime.setdefault(
+            "demand_regulation",
+            {
+                "filter_load": None,
+                "correction": 0.0,
+                "last_adjustment": None,
+                "last_filter_update": None,
+            },
+        )
+
+        if not self.config["enabled"] or not heating_cfg["enabled"] or not reg_cfg.get("enabled"):
+            if reg_state["correction"] != 0.0 or reg_state["filter_load"] is not None:
+                reg_state["correction"] = 0.0
+                reg_state["filter_load"] = None
+                reg_state["last_adjustment"] = None
+                reg_state["last_filter_update"] = None
+                self._last_critical_room = None
+                try:
+                    await self._save()
+                except OSError:
+                    pass
+            return
+
+        entities = getattr(self.manager, "entities", {})
+        room_stats = []
+        for entity in entities.values():
+            coord = getattr(entity, "coordinator", None)
+            if not coord:
+                continue
+            data = getattr(coord, "data", None)
+            if not data or not data.get("available"):
+                continue
+            if data.get("mode") not in ("heat", "auto"):
+                continue
+            if getattr(coord, "window_blocked", False):
+                continue
+
+            pos = data.get("position")
+            if pos is not None:
+                load = float(pos)
+            else:
+                load = float(data.get("heat_demand", 0.0))
+
+            room_stats.append(
+                {
+                    "name": coord.config.get("name") or entity.entity_id,
+                    "load": max(0.0, min(100.0, load)),
+                    "temperature": data.get("temperature"),
+                    "target": data.get("target"),
+                    "rate": data.get("temperature_rate") or 0.0,
+                }
+            )
+
+        if not room_stats:
+            self._last_critical_room = None
+            reg_state["filter_load"] = None
+            reg_state["last_filter_update"] = None
+            return
+
+        critical = max(room_stats, key=lambda r: r["load"])
+        self._last_critical_room = critical["name"]
+        max_load = critical["load"]
+        mean_load = sum(r["load"] for r in room_stats) / len(room_stats)
+        raw_load = 0.6 * max_load + 0.4 * mean_load
+
+        all_satisfied = all(
+            r["temperature"] is not None
+            and r["target"] is not None
+            and r["temperature"] >= r["target"]
+            for r in room_stats
+        )
+        if all_satisfied and max_load < 35.0:
+            raw_load = min(raw_load, 10.0)
+
+        if (
+            critical["load"] >= 80.0
+            and critical["temperature"] is not None
+            and critical["target"] is not None
+            and critical["temperature"] < critical["target"] - 0.2
+            and critical["rate"] <= 0.05
+        ):
+            raw_load = max(raw_load, 85.0)
+
+        prev_filter = reg_state.get("filter_load")
+        prev_update_str = reg_state.get("last_filter_update")
+        prev_update_time = (
+            dt_util.parse_datetime(prev_update_str or "") if prev_update_str else None
+        )
+
+        if prev_filter is None or prev_update_time is None:
+            filtered_load = raw_load
+        else:
+            dt_seconds = max(0.0, (now - prev_update_time).total_seconds())
+            tau = 900.0
+            alpha = min(1.0, max(0.0, 1.0 - math.exp(-dt_seconds / tau))) if dt_seconds > 0 else 0.0
+            filtered_load = prev_filter + alpha * (raw_load - prev_filter)
+
+        reg_state["filter_load"] = round(filtered_load, 1)
+        reg_state["last_filter_update"] = now.isoformat()
+
+        target_pos = reg_cfg.get("target_position", 55.0)
+        deadband = reg_cfg.get("deadband", 15.0)
+        low_bound = target_pos - deadband
+        high_bound = target_pos + deadband
+
+        step_size = reg_cfg.get("step_size", 0.5)
+        min_corr = reg_cfg.get("min_correction", -3.0)
+        max_corr = reg_cfg.get("max_correction", 2.0)
+        dwell_seconds = reg_cfg.get("dwell_minutes", 15) * 60
+        current_corr = float(reg_state.get("correction", 0.0))
+
+        desired_step = 0.0
+        if filtered_load < low_bound:
+            desired_step = -step_size
+        elif filtered_load > high_bound:
+            critical_satisfied = (
+                critical is not None
+                and critical["temperature"] is not None
+                and critical["target"] is not None
+                and critical["temperature"] >= critical["target"]
+            )
+            warming_fast = critical is not None and critical["rate"] > 0.2
+            if not critical_satisfied and not warming_fast:
+                desired_step = step_size
+
+        last_adj_str = reg_state.get("last_adjustment")
+        last_adj_time = dt_util.parse_datetime(last_adj_str or "") if last_adj_str else None
+
+        if last_adj_time is None:
+            reg_state["last_adjustment"] = now.isoformat()
+            try:
+                await self._save()
+            except OSError:
+                pass
+        elif desired_step != 0.0 and (now - last_adj_time).total_seconds() >= dwell_seconds:
+            new_corr = round(min(max_corr, max(min_corr, current_corr + desired_step)), 1)
+            if new_corr != current_corr:
+                reg_state["correction"] = new_corr
+                reg_state["last_adjustment"] = now.isoformat()
+                try:
+                    await self._save()
+                except OSError:
+                    pass
 
     async def _save(self):
         await self._store.async_save(deepcopy(self.runtime))
@@ -565,6 +769,8 @@ class HeatPumpController:
                     "errors": dict(retired_errors),
                     "pending": False,
                 }
+                if channel == "heating":
+                    await self._update_demand_regulation(now)
                 try:
                     commands = self._commands(channel, profile)  # Validate the whole channel first.
                     if saved.get("profile") != profile or saved.get("manual") != manual_boost:
@@ -622,11 +828,27 @@ class HeatPumpController:
             or self.manager.settings.get("heat_pump", {}).get("flow_sensor")
             or (config.get("heating", {}).get("entity") if config.get("heating") else None)
         )
+        reg_state = self.runtime.get("demand_regulation", {})
+        dem_reg_cfg = config.get("heating", {}).get("demand_regulation", {})
+        demand_reg_snapshot = {
+            "enabled": bool(dem_reg_cfg.get("enabled", False)),
+            "correction": float(reg_state.get("correction", 0.0)),
+            "filter_load": reg_state.get("filter_load"),
+            "target_position": float(dem_reg_cfg.get("target_position", 55.0)),
+            "deadband": float(dem_reg_cfg.get("deadband", 15.0)),
+            "min_correction": float(dem_reg_cfg.get("min_correction", -3.0)),
+            "max_correction": float(dem_reg_cfg.get("max_correction", 2.0)),
+            "dwell_minutes": int(dem_reg_cfg.get("dwell_minutes", 15)),
+            "step_size": float(dem_reg_cfg.get("step_size", 0.5)),
+            "last_adjustment": reg_state.get("last_adjustment"),
+            "critical_room": self._last_critical_room,
+        }
         return {
             "name": config["name"],
             "enabled": config["enabled"],
             "channels": deepcopy(self.status),
             "manual_dhw_boost": bool(self.runtime.get("manual_dhw_boost", False)),
+            "demand_regulation": demand_reg_snapshot,
             "return": temperature(config["return_sensor"]),
             "flow": temperature(flow_entity),
             "mixed_flow": temperature(config["mixed_sensor"]),

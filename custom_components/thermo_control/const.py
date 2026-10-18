@@ -56,6 +56,15 @@ HEAT_PUMP_CONTROL_DEFAULTS = {
             "boost": {"end": 50, "shift": 30, "correction": 5},
             "blocked": {"end": 20, "shift": 15, "correction": -5},
         },
+        "demand_regulation": {
+            "enabled": False,
+            "target_position": 55.0,
+            "deadband": 15.0,
+            "min_correction": -3.0,
+            "max_correction": 2.0,
+            "dwell_minutes": 15,
+            "step_size": 0.5,
+        },
     },
     "dhw": {
         "enabled": True,

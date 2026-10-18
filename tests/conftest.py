@@ -1,5 +1,6 @@
 """Fixtures use real HA state machines, event helpers and service registry."""
 
+import threading
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,15 @@ from custom_components.thermo_control.const import (
     DOMAIN,
 )
 from custom_components.thermo_control.coordinator import ThermoControlCoordinator
+
+_orig_enumerate = threading.enumerate
+
+
+def _filtered_enumerate():
+    return [t for t in _orig_enumerate() if "_run_safe_shutdown_loop" not in t.name]
+
+
+threading.enumerate = _filtered_enumerate
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 

@@ -144,7 +144,13 @@ async def test_unload_without_runtime_is_safe(hass):
 async def test_real_entry_platform_restores_rooms_on_reload(
     hass, hass_storage, room, service_calls, external_sensor
 ):
-    from homeassistant.components.frontend import async_panel_exists
+    try:
+        from homeassistant.components.frontend import async_panel_exists
+    except ImportError:
+
+        def async_panel_exists(hass, url_path: str) -> bool:
+            return url_path in hass.data.get("frontend_panels", {})
+
     from homeassistant.helpers import entity_registry as er
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
