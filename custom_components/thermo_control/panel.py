@@ -16,10 +16,10 @@ def _panel_version(assets: Path) -> str:
     manifest_file = assets.parent / "manifest.json"
     if manifest_file.is_file():
         try:
-            return json.loads(manifest_file.read_text(encoding="utf-8")).get("version", "2.8.0")
+            return json.loads(manifest_file.read_text(encoding="utf-8")).get("version", "2.8.1")
         except Exception:
             pass
-    return "2.8.0"
+    return "2.8.1"
 
 
 async def async_register_panel(hass: HomeAssistant, assets: Path) -> None:

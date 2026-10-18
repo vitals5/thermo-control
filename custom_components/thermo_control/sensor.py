@@ -48,6 +48,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
             HeatPumpDHWTargetSensor(manager),
             HeatPumpDemandCorrectionSensor(manager),
             HeatPumpValveLoadSensor(manager),
+            HeatPumpDemandStatusSensor(manager),
+            HeatPumpCurveEndSensor(manager),
+            HeatPumpCurveShiftSensor(manager),
+            HeatPumpTargetCorrectionSensor(manager),
         ]
     )
     async_add_entities(entities)
@@ -324,3 +328,134 @@ class HeatPumpValveLoadSensor(SensorEntity):
     def native_value(self):
         dem_reg = self.manager.heat_pump.snapshot().get("demand_regulation", {})
         return dem_reg.get("filter_load")
+
+
+class HeatPumpDemandStatusSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_icon = "mdi:scale-balance"
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_demand_status"
+        self._attr_name = "Thermo Control Wärmepumpe Regelungsstatus"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        dem_reg = self.manager.heat_pump.snapshot().get("demand_regulation", {})
+        return dem_reg.get("status_label", "Deaktiviert")
+
+    @property
+    def icon(self):
+        dem_reg = self.manager.heat_pump.snapshot().get("demand_regulation", {})
+        status = dem_reg.get("status")
+        icons = {
+            "deadband": "mdi:scale-balance",
+            "decreasing": "mdi:arrow-down-bold-circle-outline",
+            "min_limit": "mdi:arrow-down-bold-hexagon-outline",
+            "increasing": "mdi:arrow-up-bold-circle-outline",
+            "max_limit": "mdi:arrow-up-bold-hexagon-outline",
+            "starvation_boost": "mdi:rocket-launch-outline",
+            "trend_locked": "mdi:lock-alert-outline",
+            "target_reached": "mdi:check-circle-outline",
+            "dwell_time": "mdi:timer-sand",
+            "overridden": "mdi:shield-lock-outline",
+            "disabled": "mdi:power-off",
+            "no_rooms": "mdi:help-circle-outline",
+        }
+        return icons.get(status, "mdi:scale-balance")
+
+    @property
+    def extra_state_attributes(self):
+        return self.manager.heat_pump.snapshot().get("demand_regulation", {})
+
+
+class HeatPumpCurveEndSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:chart-bell-curve"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_curve_end"
+        self._attr_name = "Thermo Control Wärmepumpe Heizkurve Endpunkt"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        return self.manager.heat_pump.snapshot().get("end")
+
+
+class HeatPumpCurveShiftSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:ray-start-arrow"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_curve_shift"
+        self._attr_name = "Thermo Control Wärmepumpe Heizkurve Parallelverschiebung"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        return self.manager.heat_pump.snapshot().get("shift")
+
+
+class HeatPumpTargetCorrectionSensor(SensorEntity):
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:tune"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{DOMAIN}_heat_pump_target_correction"
+        self._attr_name = "Thermo Control Wärmepumpe Zielwertkorrektur"
+        self._attr_device_info = hub_device_info()
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ROOMS, self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        return self.manager.heat_pump.snapshot().get("correction")
+
+    @property
+    def extra_state_attributes(self):
+        snap = self.manager.heat_pump.snapshot()
+        return {
+            "base_correction": snap.get("base_correction"),
+            "dynamic_correction": snap.get("dynamic_correction"),
+            "target_correction": snap.get("target_correction"),
+        }

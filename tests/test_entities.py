@@ -207,8 +207,8 @@ async def test_expanded_sensor_platform_entities(manager):
     entry = MagicMock()
     entry.runtime_data = manager
     await sensor.async_setup_entry(manager.hass, entry, added.extend)
-    # 2 demand + 2 pump control + 3 statistics + 6 heat pump temperature sensors + 2 demand reg = 15 sensors
-    assert len(added) == 15
+    # 2 demand + 2 pump control + 3 statistics + 6 heat pump temperature sensors + 2 demand reg + 4 status/curve/correction = 19 sensors
+    assert len(added) == 19
 
     unique_ids = {s.unique_id for s in added}
     assert "thermo_control_demand" in unique_ids
@@ -226,3 +226,27 @@ async def test_expanded_sensor_platform_entities(manager):
     assert "thermo_control_heat_pump_dhw_target" in unique_ids
     assert "thermo_control_heat_pump_demand_correction" in unique_ids
     assert "thermo_control_heat_pump_valve_load" in unique_ids
+    assert "thermo_control_heat_pump_demand_status" in unique_ids
+    assert "thermo_control_heat_pump_curve_end" in unique_ids
+    assert "thermo_control_heat_pump_curve_shift" in unique_ids
+    assert "thermo_control_heat_pump_target_correction" in unique_ids
+
+
+async def test_heat_pump_status_curve_and_correction_sensors(manager):
+    status_sensor = sensor.HeatPumpDemandStatusSensor(manager)
+    end_sensor = sensor.HeatPumpCurveEndSensor(manager)
+    shift_sensor = sensor.HeatPumpCurveShiftSensor(manager)
+    target_corr_sensor = sensor.HeatPumpTargetCorrectionSensor(manager)
+
+    assert status_sensor.native_value == "Deaktiviert"
+    assert status_sensor.icon == "mdi:power-off"
+    assert isinstance(status_sensor.extra_state_attributes, dict)
+
+    assert end_sensor.native_value == 32.0
+    assert shift_sensor.native_value == 21.0
+    assert target_corr_sensor.native_value == 0.0
+    assert target_corr_sensor.extra_state_attributes == {
+        "base_correction": 0.0,
+        "dynamic_correction": 0.0,
+        "target_correction": 0.0,
+    }

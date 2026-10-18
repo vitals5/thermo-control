@@ -442,6 +442,11 @@ class HeatPumpController:
         )
 
         if not self.config["enabled"] or not heating_cfg["enabled"] or not reg_cfg.get("enabled"):
+            reg_state["status"] = "disabled"
+            reg_state["status_label"] = "Deaktiviert"
+            reg_state["status_description"] = "Bedarfsgeführte Vorlauf-Regelung ist deaktiviert."
+            reg_state["raw_load"] = None
+            reg_state["dwell_remaining_seconds"] = 0
             if reg_state["correction"] != 0.0 or reg_state["filter_load"] is not None:
                 reg_state["correction"] = 0.0
                 reg_state["filter_load"] = None
@@ -487,11 +492,24 @@ class HeatPumpController:
         if not room_stats:
             self._last_critical_room = None
             reg_state["filter_load"] = None
+            reg_state["raw_load"] = None
             reg_state["last_filter_update"] = None
+            reg_state["dwell_remaining_seconds"] = 0
+            reg_state["status"] = "no_rooms"
+            reg_state["status_label"] = "Keine aktiven Räume"
+            reg_state["status_description"] = (
+                "Keine heizenden Räume oder Ventilpositionen verfügbar."
+            )
             return
 
         critical = max(room_stats, key=lambda r: r["load"])
         self._last_critical_room = critical["name"]
+        reg_state["critical_room"] = critical["name"]
+        reg_state["critical_room_load"] = round(critical["load"], 1)
+        reg_state["critical_room_temp"] = critical["temperature"]
+        reg_state["critical_room_target"] = critical["target"]
+        reg_state["critical_room_rate"] = round(critical["rate"], 2)
+
         max_load = critical["load"]
         mean_load = sum(r["load"] for r in room_stats) / len(room_stats)
         raw_load = 0.6 * max_load + 0.4 * mean_load
@@ -502,9 +520,12 @@ class HeatPumpController:
             and r["temperature"] >= r["target"]
             for r in room_stats
         )
+        oversupply = False
         if all_satisfied and max_load < 35.0:
             raw_load = min(raw_load, 10.0)
+            oversupply = True
 
+        starvation = False
         if (
             critical["load"] >= 80.0
             and critical["temperature"] is not None
@@ -513,6 +534,9 @@ class HeatPumpController:
             and critical["rate"] <= 0.05
         ):
             raw_load = max(raw_load, 85.0)
+            starvation = True
+
+        reg_state["raw_load"] = round(raw_load, 1)
 
         prev_filter = reg_state.get("filter_load")
         prev_update_str = reg_state.get("last_filter_update")
@@ -543,21 +567,147 @@ class HeatPumpController:
         current_corr = float(reg_state.get("correction", 0.0))
 
         desired_step = 0.0
-        if filtered_load < low_bound:
-            desired_step = -step_size
-        elif filtered_load > high_bound:
-            critical_satisfied = (
-                critical is not None
-                and critical["temperature"] is not None
-                and critical["target"] is not None
-                and critical["temperature"] >= critical["target"]
-            )
-            warming_fast = critical is not None and critical["rate"] > 0.2
-            if not critical_satisfied and not warming_fast:
-                desired_step = step_size
+        critical_satisfied = (
+            critical is not None
+            and critical["temperature"] is not None
+            and critical["target"] is not None
+            and critical["temperature"] >= critical["target"]
+        )
+        warming_fast = critical is not None and critical["rate"] > 0.2
 
         last_adj_str = reg_state.get("last_adjustment")
         last_adj_time = dt_util.parse_datetime(last_adj_str or "") if last_adj_str else None
+
+        dwell_remaining = 0
+        if last_adj_time:
+            elapsed = (now - last_adj_time).total_seconds()
+            if elapsed < dwell_seconds:
+                dwell_remaining = max(0, int(dwell_seconds - elapsed))
+
+        reg_state["dwell_remaining_seconds"] = dwell_remaining
+
+        profile = self.status.get("heating", {}).get("profile", "standard")
+        is_overridden = profile not in (None, "standard")
+
+        status = "deadband"
+        status_label = (
+            f"Im Totband ({current_corr:+.1f} °C)" if current_corr != 0.0 else "Im Totband (stabil)"
+        )
+        status_description = (
+            f"System im Gleichgewicht. Ventillast ({round(filtered_load, 1)} %) "
+            f"liegt im neutralen Bereich ({low_bound:.0f} % – {high_bound:.0f} %)."
+        )
+
+        if filtered_load < low_bound:
+            desired_step = -step_size
+            if current_corr <= min_corr:
+                status = "min_limit"
+                status_label = f"Minimale Absenkung erreicht ({min_corr:+.1f} °C)"
+                status_description = (
+                    f"Vorlauf maximal abgesenkt ({min_corr:+.1f} °C). "
+                    f"Ventillast ({round(filtered_load, 1)} %) liegt unter Totband (< {low_bound:.0f} %)."
+                )
+            elif dwell_remaining > 0:
+                status = "dwell_time"
+                rem_min = math.ceil(dwell_remaining / 60)
+                status_label = f"Verweilzeit aktiv ({rem_min} Min.)"
+                status_description = (
+                    f"Absenkung ausstehend (Ventillast {round(filtered_load, 1)} % < {low_bound:.0f} %). "
+                    f"Nächster Regelschritt in {rem_min} Min."
+                )
+            else:
+                status = "decreasing"
+                status_label = f"Vorlauf abgesenkt ({current_corr - step_size:+.1f} °C)"
+                if oversupply:
+                    status_description = (
+                        f"Räume versorgt: Alle Raum-Sollwerte erreicht und Ventile geschlossen "
+                        f"(max. {max_load:.0f} % < 35 %). Vorlauf wird energieeffizient abgesenkt."
+                    )
+                else:
+                    status_description = (
+                        f"Geringer Wärmebedarf (Ventillast {round(filtered_load, 1)} % < {low_bound:.0f} %). "
+                        f"Vorlauf wird schrittweise abgesenkt."
+                    )
+        elif filtered_load > high_bound:
+            if critical_satisfied:
+                status = "target_reached"
+                status_label = "Sperre: Zieltemperatur erreicht"
+                crit_t = (
+                    f"{critical['temperature']:.1f} °C"
+                    if critical["temperature"] is not None
+                    else "—"
+                )
+                crit_tgt = f"{critical['target']:.1f} °C" if critical["target"] is not None else "—"
+                status_description = (
+                    f"Vorlaufanhebung blockiert: Leitraum '{critical['name']}' "
+                    f"hat den Sollwert bereits erreicht ({crit_t} ≥ {crit_tgt})."
+                )
+            elif warming_fast:
+                status = "trend_locked"
+                status_label = "Sperre: Raum heizt bereits auf"
+                status_description = (
+                    f"Vorlaufanhebung blockiert: Leitraum '{critical['name']}' "
+                    f"erwärmt sich bereits zügig (+{critical['rate']:.2f} °C/h)."
+                )
+            elif starvation:
+                desired_step = step_size
+                if current_corr >= max_corr:
+                    status = "max_limit"
+                    status_label = f"Maximale Anhebung erreicht ({max_corr:+.1f} °C)"
+                    status_description = (
+                        f"Vorlauf maximal angehoben ({max_corr:+.1f} °C). "
+                        f"Leitraum '{critical['name']}' hungert ({critical['load']:.0f} % geöffnet)."
+                    )
+                elif dwell_remaining > 0:
+                    status = "dwell_time"
+                    rem_min = math.ceil(dwell_remaining / 60)
+                    status_label = f"Verweilzeit aktiv ({rem_min} Min.)"
+                    status_description = (
+                        f"Unterversorgungs-Boost ausstehend: Leitraum '{critical['name']}' hungert "
+                        f"({critical['load']:.0f} % geöffnet). Nächster Regelschritt in {rem_min} Min."
+                    )
+                else:
+                    status = "starvation_boost"
+                    status_label = f"Unterversorgungs-Boost ({current_corr + step_size:+.1f} °C)"
+                    status_description = (
+                        f"Unterversorgungs-Erkennung: Leitraum '{critical['name']}' hungert "
+                        f"({critical['load']:.0f} % geöffnet). Vorlauf wird gestützt."
+                    )
+            else:
+                desired_step = step_size
+                if current_corr >= max_corr:
+                    status = "max_limit"
+                    status_label = f"Maximale Anhebung erreicht ({max_corr:+.1f} °C)"
+                    status_description = (
+                        f"Vorlauf maximal angehoben ({max_corr:+.1f} °C). "
+                        f"Ventillast ({round(filtered_load, 1)} %) liegt über Totband (> {high_bound:.0f} %)."
+                    )
+                elif dwell_remaining > 0:
+                    status = "dwell_time"
+                    rem_min = math.ceil(dwell_remaining / 60)
+                    status_label = f"Verweilzeit aktiv ({rem_min} Min.)"
+                    status_description = (
+                        f"Anhebung ausstehend (Ventillast {round(filtered_load, 1)} % > {high_bound:.0f} %). "
+                        f"Nächster Regelschritt in {rem_min} Min."
+                    )
+                else:
+                    status = "increasing"
+                    status_label = f"Vorlauf angehoben ({current_corr + step_size:+.1f} °C)"
+                    status_description = (
+                        f"Hoher Wärmebedarf (Ventillast {round(filtered_load, 1)} % > {high_bound:.0f} %). "
+                        f"Vorlauf wird schrittweise angehoben."
+                    )
+
+        if is_overridden:
+            reg_state["status"] = "overridden"
+            reg_state["status_label"] = f"Übersteuert ({profile})"
+            reg_state["status_description"] = (
+                f"Pausiert: Profil '{profile}' hat Vorrang vor der Bedarfsregelung."
+            )
+        else:
+            reg_state["status"] = status
+            reg_state["status_label"] = status_label
+            reg_state["status_description"] = status_description
 
         if last_adj_time is None:
             reg_state["last_adjustment"] = now.isoformat()
@@ -570,6 +720,7 @@ class HeatPumpController:
             if new_corr != current_corr:
                 reg_state["correction"] = new_corr
                 reg_state["last_adjustment"] = now.isoformat()
+                reg_state["dwell_remaining_seconds"] = dwell_seconds
                 try:
                     await self._save()
                 except OSError:
@@ -832,17 +983,60 @@ class HeatPumpController:
         dem_reg_cfg = config.get("heating", {}).get("demand_regulation", {})
         demand_reg_snapshot = {
             "enabled": bool(dem_reg_cfg.get("enabled", False)),
+            "status": reg_state.get(
+                "status", "deadband" if dem_reg_cfg.get("enabled") else "disabled"
+            ),
+            "status_label": reg_state.get(
+                "status_label",
+                "Im Totband (stabil)" if dem_reg_cfg.get("enabled") else "Deaktiviert",
+            ),
+            "status_description": reg_state.get("status_description", ""),
             "correction": float(reg_state.get("correction", 0.0)),
             "filter_load": reg_state.get("filter_load"),
+            "raw_load": reg_state.get("raw_load"),
             "target_position": float(dem_reg_cfg.get("target_position", 55.0)),
             "deadband": float(dem_reg_cfg.get("deadband", 15.0)),
+            "low_bound": float(
+                dem_reg_cfg.get("target_position", 55.0) - dem_reg_cfg.get("deadband", 15.0)
+            ),
+            "high_bound": float(
+                dem_reg_cfg.get("target_position", 55.0) + dem_reg_cfg.get("deadband", 15.0)
+            ),
             "min_correction": float(dem_reg_cfg.get("min_correction", -3.0)),
             "max_correction": float(dem_reg_cfg.get("max_correction", 2.0)),
             "dwell_minutes": int(dem_reg_cfg.get("dwell_minutes", 15)),
+            "dwell_remaining_seconds": int(reg_state.get("dwell_remaining_seconds", 0)),
             "step_size": float(dem_reg_cfg.get("step_size", 0.5)),
             "last_adjustment": reg_state.get("last_adjustment"),
-            "critical_room": self._last_critical_room,
+            "critical_room": self._last_critical_room or reg_state.get("critical_room"),
+            "critical_room_load": reg_state.get("critical_room_load"),
+            "critical_room_temp": reg_state.get("critical_room_temp"),
+            "critical_room_target": reg_state.get("critical_room_target"),
+            "critical_room_rate": reg_state.get("critical_room_rate"),
         }
+
+        active_profile = self.status.get("heating", {}).get("profile", "standard")
+        profiles = config.get("heating", {}).get("profiles", {})
+        profile_cfg = profiles.get(active_profile) or profiles.get("standard", {})
+        cfg_end = profile_cfg.get("end")
+        cfg_shift = profile_cfg.get("shift")
+        cfg_corr = float(profile_cfg.get("correction", 0.0) or 0.0)
+
+        dyn_corr = (
+            float(reg_state.get("correction", 0.0))
+            if dem_reg_cfg.get("enabled") and active_profile == "standard"
+            else 0.0
+        )
+        calculated_correction = max(-5.0, min(5.0, round(cfg_corr + dyn_corr, 1)))
+
+        live_end = target(config["heating"]["end_entity"])
+        live_shift = target(config["heating"]["shift_entity"])
+        live_corr = (
+            target(config["heating"]["correction_entity"])
+            if config["heating"]["correction_entity"]
+            else target(config["heating"]["entity"], "temperature")
+        )
+
         return {
             "name": config["name"],
             "enabled": config["enabled"],
@@ -855,11 +1049,12 @@ class HeatPumpController:
             "dhw_temperature": target(config["dhw"]["entity"], "current_temperature"),
             "dhw_target": target(config["dhw"]["entity"], "temperature"),
             "heating_mode": raw(config["heating"]["entity"]),
-            "correction": target(config["heating"]["correction_entity"])
-            if config["heating"]["correction_entity"]
-            else target(config["heating"]["entity"], "temperature"),
-            "end": target(config["heating"]["end_entity"]),
-            "shift": target(config["heating"]["shift_entity"]),
+            "correction": live_corr if live_corr is not None else calculated_correction,
+            "target_correction": calculated_correction,
+            "base_correction": cfg_corr,
+            "dynamic_correction": dyn_corr,
+            "end": live_end if live_end is not None else cfg_end,
+            "shift": live_shift if live_shift is not None else cfg_shift,
             "mixed_end": target(config["mixed_end_entity"]),
             "mixed_shift": target(config["mixed_shift_entity"]),
         }

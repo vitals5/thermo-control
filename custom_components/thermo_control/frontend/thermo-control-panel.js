@@ -443,7 +443,22 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
     this.shadowRoot.querySelector("#pump-title").textContent = config.name || "Wärmepumpe";
     this._updateModes();
     const status = this.shadowRoot.querySelector("#pump-status"); status.replaceChildren();
-    for (const [label, value] of [["Heizkreis Rücklauf", format(pump.return)], ["Heizkreis Vorlauf", format(pump.flow)], ["Mischkreis Vorlauf", format(pump.mixed_flow)], ["Warmwasser Ist / Soll", `${format(pump.dhw_temperature)} / ${format(pump.dhw_target)}`]]) {
+    const corrVal = pump.correction ?? pump.target_correction;
+    const signCorr = corrVal != null && Number(corrVal) > 0 ? "+" : "";
+    const corrDisplay = corrVal != null && Number.isFinite(Number(corrVal)) ? `${signCorr}${Number(corrVal).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C` : "—";
+    const statusItems = [
+      ["Heizkreis Rücklauf", format(pump.return)],
+      ["Heizkreis Vorlauf", format(pump.flow)],
+      ["Mischkreis Vorlauf", format(pump.mixed_flow)],
+      ["Warmwasser Ist / Soll", `${format(pump.dhw_temperature)} / ${format(pump.dhw_target)}`],
+      ["Heizkurve Endpunkt", format(pump.end)],
+      ["Parallelverschiebung", format(pump.shift)],
+      ["Zielwertkorrektur", corrDisplay],
+    ];
+    if (pump.mixed_end != null || pump.mixed_shift != null) {
+      statusItems.push(["MK Heizkurve", `${format(pump.mixed_end)} / ${format(pump.mixed_shift)}`]);
+    }
+    for (const [label, value] of statusItems) {
       const item = create("div", label); item.append(create("strong", value)); status.append(item);
     }
     const profiles = { standard: "Standard", boost: "PV-Boost", blocked: "Blockierung", off: "Aus", disabled: "Steuerung deaktiviert" };
@@ -452,6 +467,7 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       this.shadowRoot.querySelector(`#${channel}-status`).textContent = `${profiles[state.profile] || state.profile}${state.pending ? " · Rückmeldung ausstehend" : ""}${state.pv === null ? " · PV-Signal nicht verfügbar" : state.pv && !state.pv_ready ? " · PV-Verzögerung" : ""}${Object.values(state.errors || {}).length ? ` · ${Object.values(state.errors).join("; ")}` : ""}`;
     }
     const demandBadge = this.shadowRoot.querySelector("#demand-regulation-badge");
+    const demandCard = this.shadowRoot.querySelector("#demand-regulation-card");
     const demandState = pump.demand_regulation;
     if (demandBadge) {
       if (demandState?.enabled) {
@@ -465,6 +481,50 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       } else {
         demandBadge.hidden = true;
         demandBadge.style.display = "none";
+      }
+    }
+    if (demandCard) {
+      if (demandState?.enabled) {
+        demandCard.hidden = false;
+        demandCard.style.display = "block";
+        const corr = demandState.correction ?? 0;
+        const sign = corr > 0 ? "+" : "";
+        const corrDisplay = `${sign}${corr.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
+        const filterLoad = demandState.filter_load != null ? `${Number(demandState.filter_load).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %` : "—";
+        const rawLoad = demandState.raw_load != null ? `${Number(demandState.raw_load).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %` : "—";
+        const room = demandState.critical_room || "Keiner";
+        let roomDetail = room;
+        if (demandState.critical_room_load != null) {
+          roomDetail += ` (${Math.round(demandState.critical_room_load)} %)`;
+        }
+        const targetBand = `${demandState.target_position ?? 55} % (±${demandState.deadband ?? 15} %)`;
+        const neutralBand = `${demandState.low_bound ?? 40} % – ${demandState.high_bound ?? 70} %`;
+        const dwell = demandState.dwell_remaining_seconds > 0
+          ? `Noch ${Math.ceil(demandState.dwell_remaining_seconds / 60)} Min.`
+          : `Bereit (${demandState.dwell_minutes ?? 15} Min.)`;
+
+        const statusBadgeClass = demandState.status || "deadband";
+        const statusLabel = demandState.status_label || "Im Totband (stabil)";
+        const statusDesc = demandState.status_description || "System im Gleichgewicht.";
+
+        demandCard.innerHTML = `
+          <div class="demand-card-header">
+            <span class="demand-card-title">🎯 Regelungsstatus der Bedarfsführung</span>
+            <span class="demand-badge ${statusBadgeClass}">${statusLabel}</span>
+          </div>
+          <p class="demand-card-desc">${statusDesc}</p>
+          <div class="demand-grid">
+            <div class="demand-stat"><span>Gefilterte Ventillast</span><strong>${filterLoad}</strong></div>
+            <div class="demand-stat"><span>Ungemittelte Last</span><strong>${rawLoad}</strong></div>
+            <div class="demand-stat"><span>Kritischer Leitraum</span><strong title="${roomDetail}">${roomDetail}</strong></div>
+            <div class="demand-stat"><span>Dynamische Korrektur</span><strong>${corrDisplay}</strong></div>
+            <div class="demand-stat"><span>Neutrales Totband</span><strong title="${targetBand}">${neutralBand}</strong></div>
+            <div class="demand-stat"><span>Verweilzeit</span><strong>${dwell}</strong></div>
+          </div>
+        `;
+      } else {
+        demandCard.hidden = true;
+        demandCard.style.display = "none";
       }
     }
     const boostBtn = this.shadowRoot.querySelector("#dhw-boost-trigger"), boostBadge = this.shadowRoot.querySelector("#dhw-boost-badge");
@@ -526,15 +586,31 @@ class ThermoControlHeatPumpEditor extends HTMLElement {
       .blocks button:hover{background:rgba(59,130,246,0.12);border-color:rgba(59,130,246,0.3)}
       .note{font-size:13px;font-weight:600;overflow-wrap:anywhere;padding:12px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);margin:8px 0;color:#ffffff}
       .note:empty{display:none}
+      .demand-card{margin:12px 0 8px;padding:14px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+      .demand-card-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+      .demand-card-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#ffffff}
+      .demand-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05)}
+      .demand-badge.deadband{background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.4);color:#6ee7b7}
+      .demand-badge.decreasing,.demand-badge.min_limit{background:rgba(59,130,246,0.15);border-color:rgba(59,130,246,0.4);color:#93c5fd}
+      .demand-badge.increasing,.demand-badge.max_limit{background:rgba(249,115,22,0.15);border-color:rgba(249,115,22,0.4);color:#fdba74}
+      .demand-badge.starvation_boost{background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.4);color:#d8b4fe}
+      .demand-badge.trend_locked,.demand-badge.target_reached{background:rgba(234,179,8,0.15);border-color:rgba(234,179,8,0.4);color:#fde047}
+      .demand-badge.dwell_time{background:rgba(6,182,212,0.15);border-color:rgba(6,182,212,0.4);color:#67e8f9}
+      .demand-badge.overridden,.demand-badge.disabled{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.15);color:#9ca3af}
+      .demand-card-desc{font-size:12px;line-height:1.5;color:#cbd5e1;margin:0 0 10px}
+      .demand-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}
+      .demand-stat{display:flex;flex-direction:column;gap:2px;padding:6px 8px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.06);border-radius:8px}
+      .demand-stat span{font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.4px}
+      .demand-stat strong{font-size:13px;font-weight:700;color:#ffffff;overflow-wrap:anywhere}
       details{border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 14px;margin:16px 0;background:rgba(255,255,255,0.02)}
       details summary{cursor:pointer;font-size:14px;font-weight:700;user-select:none;color:#ffffff}
       details .fields{margin-top:16px}
       input:focus,select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.25)}
       input:focus-visible,button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #3b82f6;outline-offset:2px}
       #pump-block-editor{padding:18px;border:1px solid rgba(255,255,255,0.1);border-radius:14px;margin:16px 0;background:rgba(255,255,255,0.02)}
-      @media(max-width:600px){form,section{padding:10px 12px;margin-bottom:12px;border-radius:12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:13px;margin:10px 0 6px}p{font-size:12px;line-height:1.4}label{font-size:12px;gap:4px;margin-bottom:8px}input,select,button{min-height:38px;padding:8px 10px;font-size:12px;border-radius:8px}.fields{grid-template-columns:minmax(0,1fr);gap:8px}.status-grid{gap:6px}.status-grid div{padding:8px 10px;border-radius:8px;font-size:10px}.status-grid strong{font-size:15px;margin-top:2px}.profiles{gap:4px;margin:8px 0}.profiles fieldset{padding:4px;border-radius:8px}.profiles legend{font-size:11px}.profiles label{font-size:10px;margin-bottom:4px}.profiles input{min-height:32px;padding:4px 6px;font-size:12px}.actions,.days{gap:4px;margin:8px 0}.days button{padding:4px 10px;font-size:11px}.timeline{height:46px;margin-top:10px;border-radius:8px}.blocks{grid-template-columns:minmax(0,1fr);gap:6px;margin:10px 0}.note{padding:8px 10px;border-radius:8px;margin:6px 0;font-size:12px}details{padding:10px;margin:10px 0;border-radius:10px}details summary{font-size:13px}details .fields{margin-top:10px}#pump-block-editor{padding:10px 12px;border-radius:10px;margin:10px 0}}
+      @media(max-width:600px){form,section{padding:10px 12px;margin-bottom:12px;border-radius:12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:13px;margin:10px 0 6px}p{font-size:12px;line-height:1.4}label{font-size:12px;gap:4px;margin-bottom:8px}input,select,button{min-height:38px;padding:8px 10px;font-size:12px;border-radius:8px}.fields{grid-template-columns:minmax(0,1fr);gap:8px}.status-grid{gap:6px}.status-grid div{padding:8px 10px;border-radius:8px;font-size:10px}.status-grid strong{font-size:15px;margin-top:2px}.demand-card{padding:8px 10px;margin:8px 0;border-radius:10px}.demand-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.demand-stat{padding:4px 6px}.profiles{gap:4px;margin:8px 0}.profiles fieldset{padding:4px;border-radius:8px}.profiles legend{font-size:11px}.profiles label{font-size:10px;margin-bottom:4px}.profiles input{min-height:32px;padding:4px 6px;font-size:12px}.actions,.days{gap:4px;margin:8px 0}.days button{padding:4px 10px;font-size:11px}.timeline{height:46px;margin-top:10px;border-radius:8px}.blocks{grid-template-columns:minmax(0,1fr);gap:6px;margin:10px 0}.note{padding:8px 10px;border-radius:8px;margin:6px 0;font-size:12px}details{padding:10px;margin:10px 0;border-radius:10px}details summary{font-size:13px}details .fields{margin-top:10px}#pump-block-editor{padding:10px 12px;border-radius:10px;margin:10px 0}}
       @media(min-width:700px){.status-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
-    </style><section><h2 id="pump-title">Wärmepumpe</h2><div id="pump-status" class="status-grid"></div><div class="actions" style="margin:12px 0 0"><button type="button" id="pump-view-graph">📈 Sensoren im Graph anzeigen</button></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><span id="demand-regulation-badge" class="note" style="margin:4px 0 0;align-items:center;display:none" hidden></span><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p><div class="actions" style="margin:8px 0 0;align-items:center"><button type="button" id="dhw-boost-trigger">⚡ Brauchwasser Boost manuell auslösen</button><span id="dhw-boost-badge" class="note" style="margin:0;align-items:center;display:none" hidden></span></div></section>
+    </style><section><h2 id="pump-title">Wärmepumpe</h2><div id="pump-status" class="status-grid"></div><div class="actions" style="margin:12px 0 0"><button type="button" id="pump-view-graph">📈 Sensoren im Graph anzeigen</button></div><h3>Heizung</h3><p id="heating-status" class="note" role="status"></p><span id="demand-regulation-badge" class="note" style="margin:4px 0 0;align-items:center;display:none" hidden></span><div id="demand-regulation-card" class="demand-card" style="display:none" hidden></div><h3>Warmwasser</h3><p id="dhw-status" class="note" role="status"></p><div class="actions" style="margin:8px 0 0;align-items:center"><button type="button" id="dhw-boost-trigger">⚡ Brauchwasser Boost manuell auslösen</button><span id="dhw-boost-badge" class="note" style="margin:0;align-items:center;display:none" hidden></span></div></section>
     <form id="pump-form"><h2>Steuerung & Sollwerte</h2><label>Name der Wärmepumpe<input name="name" type="text" maxlength="80" required></label><label class="checkbox"><input name="enabled" type="checkbox">Wärmepumpensteuerung aktivieren</label><div class="fields"><label>Heizungsmodus<select name="heating_mode"><option value="automatic">Automatik</option><option value="off">Aus</option></select></label><label>Priorität<select name="priority"><option value="block">Zeitblockierung vor PV-Boost</option><option value="pv">PV-Boost vor Zeitblockierung</option></select></label><label>PV-Signal muss aktiv sein (s)<input name="pv_delay" type="number" min="0" max="1800" step="1" required></label><label>Mindesthaltezeit Standard / Boost (s)<input name="minimum_hold" type="number" min="60" max="3600" step="1" required></label></div>
     <label class="checkbox"><input name="heating_enabled" type="checkbox">Heizung automatisch steuern</label><div id="heating-profiles" class="profiles"></div><div class="fields"><label>Automatik in HA<select name="automatic_mode"></select></label><label>Heizung im Sperrzeitfenster<select name="blocked_mode"><option value="keep">Über Sollwerte / Heizkurve absenken</option><option value="off">Zusätzlich Heizungsmodus Aus</option></select></label></div>
     <details id="demand-regulation-details"><summary>Bedarfsgeführte Vorlauf-Regelung (Thermostat-Rückkopplung)</summary><p class="help">Passt die Vorlauf-Korrektur der Wärmepumpe dynamisch an die Ventilstellungen der Raumthermostate an. Sind alle Thermostate weitgehend geschlossen, wird der Vorlauf schrittweise abgesenkt. Benötigt ein Raum viel Wärme, wird der Vorlauf angehoben. Ein Tiefpassfilter, Totband und Verweilzeit verhindern Aufschaukeln und Takten.</p><label class="checkbox"><input name="demand_regulation_enabled" type="checkbox">Bedarfsgeführte Vorlauf-Regelung aktivieren</label><div class="fields"><label>Ziel-Ventilöffnung (%)<input name="demand_target_position" type="number" min="10" max="90" step="1" required></label><label>Totband (±%)<input name="demand_deadband" type="number" min="0" max="40" step="1" required></label><label>Minimale Absenkung (°C)<input name="demand_min_correction" type="number" min="-5" max="0" step="0.5" required></label><label>Maximale Anhebung (°C)<input name="demand_max_correction" type="number" min="0" max="5" step="0.5" required></label><label>Verweilzeit zwischen Schritten (min)<input name="demand_dwell_minutes" type="number" min="5" max="120" step="1" required></label><label>Schrittweite (°C)<input name="demand_step_size" type="number" min="0.1" max="2" step="0.1" required></label></div></details>
@@ -865,7 +941,7 @@ class ThermoControlPanel extends HTMLElement {
         [hidden]{display:none!important}
         @media(max-width:650px){main{padding:8px 8px 24px}.toolbar{padding:8px 12px;gap:8px}.toolbar strong{font-size:18px}.version-label{display:none}.version{font-size:11px}.intro{margin-bottom:6px}.intro .eyebrow{display:none}.intro h1{font-size:16px;margin:2px 0 2px}.intro p{display:none}.empty{padding:24px 16px;border-radius:12px}.empty h2{margin:10px 0 6px;font-size:16px}.empty-symbol{font-size:28px}.empty button{margin-top:14px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr;gap:10px}dialog{width:calc(100% - 16px);border-radius:14px}.dialog-header{padding:12px 14px}.dialog-header h2{font-size:16px}.dialog-header p{font-size:11px;margin-top:2px}.dialog-body{padding:12px 14px}.dialog-footer{padding:12px 14px;gap:8px}.wide{grid-column:auto}label{gap:4px;font-size:12px}input,select{min-height:38px;padding:8px 10px;font-size:13px;border-radius:8px}}
       </style>
-      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.7.1</span></header>
+      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.8.1</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
@@ -1611,10 +1687,20 @@ class ThermoControlPanel extends HTMLElement {
     const pump = this._data.heat_pump;
     if (pump) {
       const items = [["Rücklauf", temperature(pump.return)], ["Warmwasser Ist / Soll", `${temperature(pump.dhw_temperature)} / ${temperature(pump.dhw_target)}`], [`${pump.name || "Wärmepumpe"} · Steuerung`, pump.enabled ? ({standard: "Standard", boost: "PV-Boost", blocked: "Blockiert", off: "Aus", disabled: "Deaktiviert"}[pump.channels?.heating?.profile] || "—") : "Deaktiviert"]];
+      if (pump.end != null || pump.shift != null) {
+        items.push(["Heizkurve", `${temperature(pump.end)} / ${temperature(pump.shift)}`]);
+      }
+      if (pump.correction != null || pump.target_correction != null) {
+        const corr = pump.correction ?? pump.target_correction;
+        const sign = Number(corr) > 0 ? "+" : "";
+        items.push(["Zielwertkorrektur", `${sign}${Number(corr).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`]);
+      }
       if (pump.demand_regulation?.enabled) {
         const corr = pump.demand_regulation.correction ?? 0;
         const sign = corr > 0 ? "+" : "";
         items.push(["Bedarfskorrektur", `${sign}${corr.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`]);
+        const statusLabel = pump.demand_regulation.status_label || "Aktiv";
+        items.push(["Regelungsstatus", statusLabel]);
       }
       for (const [name, value] of items) {
         const item = create("span", name); item.append(create("strong", value)); bar.append(item);

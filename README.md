@@ -5,9 +5,22 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.0`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.1`.
 
-Neu in **2.8.0**:
+Neu in **2.8.1**:
+- **Live-Statusanzeige für die Wärmepumpen-Bedarfsregelung**:
+  - Neue Status-Kachel im Wärmepumpen-Tab des Panels mit dynamisch farbkodiertem Status-Badge (`Im Totband (stabil)`, `Vorlauf abgesenkt`, `Vorlauf angehoben`, `Unterversorgungs-Boost`, `Verweilzeit aktiv`, `Sperre: Zieltemperatur erreicht`, `Sperre: Raum heizt bereits auf`, `Übersteuert`, `Deaktiviert`).
+  - Detaillierte deutsche Klartext-Begründung mit Ursache, aktuellem Leitraum und Verriegelungsstatus.
+  - 6 kompakte Messwertkacheln: Gefilterte Ventillast, Rohe Ventillast, Kritischer Leitraum (mit Last & Temperaturtrend), Neutrales Totband, Dynamische Korrektur und Verweilzeit-Countdown.
+- **Anzeige aktuell gesetzter Werte für Heizkurve & Zielwertkorrektur**:
+  - Live-Werte im Wärmepumpen-Statusblock und in der Hauptübersicht-Statusleiste für **Heizkurve Endpunkt**, **Parallelverschiebung** (Niveau), **Zielwertkorrektur** (mit Tooltip-Aufschlüsselung nach Basis- und Dynamik-Anteil) sowie optional **MK Heizkurve**.
+- **Neue Home-Assistant-Sensoren**:
+  - `sensor.thermo_control_heat_pump_demand_status` (Aktueller Regelungsstatus mit erweiterten Attributen)
+  - `sensor.thermo_control_heat_pump_curve_end` (Aktueller Heizkurven-Endpunkt in °C)
+  - `sensor.thermo_control_heat_pump_curve_shift` (Aktuelle Heizkurven-Parallelverschiebung in °C)
+  - `sensor.thermo_control_heat_pump_target_correction` (Aktuell gesetzte Zielwertkorrektur in °C mit Basis- & Dynamik-Attributen)
+
+Seit **2.8.0**:
 - **Intelligente, bedarfsgeführte Vorlauf-Regelung (Thermostat-Rückkopplung)**:
   - Dynamische Anpassung der Heizzielkorrektur (`heating.correction_entity` / `heating.entity`) abhängig von den Ventilpositionen der Raumthermostate.
   - **Energiesparendes Absenken**: Sind die Thermostate weitgehend geschlossen (z. B. Sollwert erreicht), wird die Vorlauftemperatur schrittweise abgesenkt.
@@ -18,16 +31,13 @@ Neu in **2.8.0**:
     3. **Konfigurierbares Totband (Deadband, z. B. ±15% um Zielposition 55%)**: Im neutralen Lastbereich (40%–70%) finden keinerlei Stellbefehle statt.
     4. **Temperaturtrend-Sperre**: Ist ein Raum bereits gesättigt oder steigt seine Temperatur rasch an ($dT/dt > 0.2^\circ\text{C/h}$), wird eine weitere Vorlaufanhebung blockiert, um Überschwinger zu verhindern.
     5. **Verweilzeit & Schrittweiten-Drosselung**: Korrekturanpassungen erfolgen in gedrosselten Schritten (z. B. 0.5 °C) und frühestens nach Ablauf der Verweilzeit (z. B. 15 min).
-  - **Neue Home-Assistant-Entitäten**:
+  - **Home-Assistant-Entitäten für Bedarfsregelung**:
     - `switch.thermo_control_heat_pump_demand_regulation_enabled` (Bedarfsregelung aktivieren/deaktivieren)
     - `sensor.thermo_control_heat_pump_demand_correction` (Aktuelle dynamische Heizzielkorrektur in °C)
     - `sensor.thermo_control_heat_pump_valve_load` (Gefilterte System-Ventillast in %)
     - `number.thermo_control_heat_pump_demand_target_position` (Ziel-Ventilöffnung, z. B. 55%)
     - `number.thermo_control_heat_pump_demand_min_correction` (Minimale Absenkung, z. B. −3.0 °C)
     - `number.thermo_control_heat_pump_demand_max_correction` (Maximale Anhebung, z. B. +2.0 °C)
-  - **Vollständige Panel-Integration**:
-    - Eigener Konfigurationsbereich im Wärmepumpen-Editor mit Live-Validierung.
-    - Live-Statusanzeige mit dynamischem Badge (Korrekturwert, gefilterte Last und Leitraum) im Editor sowie in der Dashboard-Statusleiste.
 
 Seit **2.7.1**:
 - **Automatisches Cache-Busting für das Seitenleisten-Panel**:
@@ -101,7 +111,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.0` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.1` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
