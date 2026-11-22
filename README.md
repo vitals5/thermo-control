@@ -5,9 +5,17 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.1`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.2`.
 
-Neu in **2.8.1**:
+Neu in **2.8.2**:
+- **Autonome Thermostatregelung ohne PWM (Direkt-Modus)**:
+  - Neuer Regelungsmodus: **Thermostat regelt selbst (nur Zieltemperatur)** (`direct`), neben **Zweipunktregelung** (`two_point`) und **Pulsweitenmodulation (TPI/PWM)** (`pwm`).
+  - Einstellbar sowohl raumweit im Raum-Editor als auch feingranular pro Thermostat unter *Thermostate und Kalibrierung* (mit Option zur Übernahme des Raummodus).
+  - Thermo Control übermittelt kontinuierlich die berechnete Zieltemperatur an das Thermostat. Das Thermostat regelt sein Ventil eigenständig und autonom – es findet **keine PWM-Taktung** und kein künstliches Ein-/Ausschalten durch Thermo Control statt.
+  - Schutzfunktionen bleiben vollständig erhalten: Bei geöffnetem Fenster, Abschalten des Raums (`mode: off`) oder Ausfall des Raumtemperatursensors wird das Thermostat sicher auf Frostschutztemperatur gesetzt.
+  - Ventilöffnungen (`position`) oder Heizaktionen selbstregelnder Thermostate werden weiterhin für den Wärmebedarf und die Wärmepumpen-Zielwertkorrektur ausgewertet.
+
+Seit **2.8.1**:
 - **Live-Statusanzeige für die Wärmepumpen-Bedarfsregelung**:
   - Neue Status-Kachel im Wärmepumpen-Tab des Panels mit dynamisch farbkodiertem Status-Badge (`Im Totband (stabil)`, `Vorlauf abgesenkt`, `Vorlauf angehoben`, `Unterversorgungs-Boost`, `Verweilzeit aktiv`, `Sperre: Zieltemperatur erreicht`, `Sperre: Raum heizt bereits auf`, `Übersteuert`, `Deaktiviert`).
   - Detaillierte deutsche Klartext-Begründung mit Ursache, aktuellem Leitraum und Verriegelungsstatus.
@@ -111,7 +119,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.1` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.2` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 
@@ -241,7 +249,20 @@ Der gewünschte Modus, Sollwert und Preset bleiben erhalten. Änderungen währen
 
 Die lokale Fenstererkennung und die Kindersicherung der Geräte werden nicht umgeschaltet. Vorhandene Climate-Attribute werden im Gerätestatus angezeigt; eigene Geräteschutzfunktionen bleiben wirksam.
 
-## Koordination und Presets
+## Koordination, Regelungsmodi und Presets
+
+### Regelungsmodi (pro Raum und pro Thermostat)
+
+Thermo Control unterstützt drei Regelungsmodi, die sowohl raumweit als auch feingranular pro Thermostat (`control_mode`) im Panel eingestellt werden können:
+
+1. **Thermostat regelt selbst (nur Zieltemperatur / `direct`)**:
+   Thermo Control übermittelt die berechnete Zieltemperatur (inkl. Zeitplänen, Presets, Master-Offset) an das Thermostat. Das Thermostat regelt sein Ventil eigenständig und kontinuierlich anhand seines internen Regelalgorithmus. Es findet **keine** PWM-Taktung (kein künstliches Auf-/Zufahren oder Absenken auf Frostschutz) durch Thermo Control statt. Fensterpausen, Raum-Aus (`off`) und Frostschutz greifen weiterhin als Sicherheitsfunktion.
+2. **Zweipunktregelung (`two_point`)**:
+   Thermo Control steuert das Ventil binär nach Raum-Isttemperatur und Hysterese (Ein/Aus).
+3. **Pulsweitenmodulation (`pwm`)**:
+   Thermo Control berechnet bedarfsgerechte TPI/PWM-Taktzyklen (standardmäßig bei Fußbodenheizungen).
+
+Jedes einzelne Thermostat kann den Raummodus erben (`room`) oder gezielt übersteuert werden (z. B. ein selbstregelndes Heizkörperthermostat in einem ansonsten per Zweipunkt gesteuerten Raum).
 
 Im Modus **Heizen** ist die virtuelle Raum-Entität die führende Stelle für Sollwert und HVAC-Modus. Gruppen übertragen gemeinsame Vorgaben an ihre Räume. Abweichende physische Einstellungen werden wieder synchronisiert. Geräte-Presets werden, soweit unterstützt, auf `manual` gesetzt, damit lokale Zeitpläne die Raumvorgabe nicht ersetzen. Die Raum-Presets verwenden einheitliche, konfigurierbare Sollwerte statt uneinheitlicher Firmware-Presets:
 

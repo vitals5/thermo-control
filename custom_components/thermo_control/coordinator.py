@@ -35,6 +35,7 @@ from .const import (
     CONF_CALIBRATION_STEP,
     CONF_CALIBRATION_TOPIC,
     CONF_CLOSE_DELAY,
+    CONF_CONTROL_MODE,
     CONF_CORRECTED,
     CONF_DEVICES,
     CONF_FROST,
@@ -48,6 +49,11 @@ from .const import (
     CONF_TOLERANCE,
     CONF_TRVS,
     CONF_WINDOWS,
+    CONTROL_MODE_DIRECT,
+    CONTROL_MODE_PWM,
+    CONTROL_MODE_ROOM,
+    CONTROL_MODE_TWO_POINT,
+    CONTROL_MODES,
     DEFAULTS,
     DEVICE_DEFAULTS,
     DOMAIN,
@@ -95,6 +101,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Older configurations used auto as a regulated mode. External
             # control now always uses heat; the physical auto mode is respected.
             device[CONF_REGULATED_MODE] = HVACMode.HEAT
+            device.setdefault(CONF_CONTROL_MODE, CONTROL_MODE_ROOM)
             if not device.get(CONF_CALIBRATION_ENTITY) and not device.get(CONF_CALIBRATION_TOPIC):
                 device[CONF_CALIBRATION_ENTITY] = discover_related(
                     hass, entity_id, "number", "local_temperature_calibration"
@@ -351,6 +358,20 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def control_config(self) -> dict[str, Any]:
         return self.manager.control_for(self.config) if self.manager else self.config
 
+    def control_mode_for(self, entity_id: str | None = None) -> str:
+        """Resolve the effective control mode ('direct', 'two_point', or 'pwm')."""
+        if entity_id:
+            device = self.devices.get(entity_id, {})
+            mode = device.get(CONF_CONTROL_MODE)
+            if mode and mode != CONTROL_MODE_ROOM:
+                return mode
+        room_mode = self.config.get(CONF_CONTROL_MODE)
+        if room_mode in CONTROL_MODES:
+            return room_mode
+        return (
+            CONTROL_MODE_PWM if self.config.get("heating_type") == "floor" else CONTROL_MODE_DIRECT
+        )
+
     def supports_mode(self, mode: HVACMode) -> bool:
         physical = HVACMode.AUTO if mode == HVACMode.AUTO else HVACMode.HEAT
         if mode not in (HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO):
@@ -399,6 +420,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "available": state is not None,
                 "hvac_mode": state.state if state else None,
                 "external_control": state is not None and not self._is_auto(state),
+                "control_mode": self.control_mode_for(entity_id),
                 "hvac_action": state.attributes.get("hvac_action") if state else None,
                 "position": position,
                 "child_lock": state.attributes.get("child_lock") if state else None,
@@ -454,6 +476,7 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "position": round(sum(positions) / len(positions), 1) if positions else None,
                 "available": room is not None
                 and any(self._state(entity_id) for entity_id in self.trvs),
+                "control_mode": self.control_mode_for(),
                 "devices": device_status,
                 "heat_demand": self.heat_demand,
                 "heat_permitted": self.heat_permitted,
@@ -536,8 +559,11 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         config = self.control_config()
         previous_control = (self.controller.active, self.controller.switched_at)
-        if self.config["heating_type"] == "floor":
-            output = self.controller.update(
+        active_modes = {self.control_mode_for(entity_id) for entity_id in self.trvs}
+
+        # 1. PWM output
+        if CONTROL_MODE_PWM in active_modes:
+            pwm_output = self.controller.update(
                 dt_util.utcnow().timestamp(),
                 room,
                 self.effective_target,
@@ -545,17 +571,81 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 config,
                 permitted=self.heat_permitted,
             )
-            self.heat_demand = self.controller.demand * 100
-            self._demand = output
+            pwm_demand = self.controller.demand * 100
         else:
-            output = enabled and self.heat_permitted
+            pwm_output = False
+            pwm_demand = 0.0
+
+        # 2. Two-point output
+        if CONTROL_MODE_TWO_POINT in active_modes:
             if not enabled:
-                self._demand = False
-            elif room <= self.effective_target - config[CONF_TOLERANCE]:
-                self._demand = True
-            elif room >= self.effective_target + config[CONF_TOLERANCE]:
-                self._demand = False
-            self.heat_demand = 100.0 if self._demand else 0.0
+                two_point_demand = False
+            elif room is not None and room <= self.effective_target - config[CONF_TOLERANCE]:
+                two_point_demand = True
+            elif room is not None and room >= self.effective_target + config[CONF_TOLERANCE]:
+                two_point_demand = False
+            else:
+                two_point_demand = self._demand
+            two_point_output = two_point_demand and self.heat_permitted
+        else:
+            two_point_demand = False
+            two_point_output = False
+
+        # 3. Direct output: thermostats regulate themselves, Thermo Control only provides target
+        direct_enabled = enabled and self.heat_permitted
+        if CONTROL_MODE_DIRECT in active_modes and direct_enabled:
+            direct_positions = []
+            for entity_id in self.trvs:
+                if self.control_mode_for(entity_id) == CONTROL_MODE_DIRECT:
+                    state = self._state(entity_id)
+                    if state:
+                        dev = self.devices.get(entity_id, {})
+                        sensor = self._state(dev.get(CONF_POSITION_ENTITY))
+                        pos = finite(sensor.state if sensor else state.attributes.get("position"))
+                        if pos is not None and 0 <= pos <= 100:
+                            direct_positions.append(pos)
+            if direct_positions:
+                direct_demand = round(sum(direct_positions) / len(direct_positions), 1)
+            elif any(
+                (state := self._state(entity_id)) is not None
+                and self.control_mode_for(entity_id) == CONTROL_MODE_DIRECT
+                and state.attributes.get("hvac_action") == HVACAction.HEATING
+                for entity_id in self.trvs
+            ):
+                direct_demand = 100.0
+            elif room is not None and room < self.effective_target:
+                direct_demand = 100.0
+            else:
+                direct_demand = 0.0
+        else:
+            direct_demand = 0.0
+
+        if active_modes == {CONTROL_MODE_DIRECT}:
+            self.heat_demand = direct_demand
+            self._demand = direct_enabled and (
+                direct_demand > 0 or (room is not None and room < self.effective_target)
+            )
+            output = direct_enabled
+        elif active_modes == {CONTROL_MODE_PWM}:
+            self.heat_demand = pwm_demand
+            self._demand = output = pwm_output
+        elif active_modes == {CONTROL_MODE_TWO_POINT}:
+            self.heat_demand = 100.0 if two_point_demand else 0.0
+            self._demand = output = two_point_output
+        else:
+            demands = []
+            if CONTROL_MODE_PWM in active_modes:
+                demands.append(pwm_demand)
+            if CONTROL_MODE_TWO_POINT in active_modes:
+                demands.append(100.0 if two_point_demand else 0.0)
+            if CONTROL_MODE_DIRECT in active_modes:
+                demands.append(direct_demand)
+            self.heat_demand = max(demands, default=0.0)
+            self._demand = output = (
+                (CONTROL_MODE_PWM in active_modes and pwm_output)
+                or (CONTROL_MODE_TWO_POINT in active_modes and two_point_output)
+                or (CONTROL_MODE_DIRECT in active_modes and direct_enabled and direct_demand > 0)
+            )
         if any(
             (state := self._state(entity_id)) is not None
             and self._is_auto(state)
@@ -582,12 +672,19 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if state is None:
                 continue
             self._errors.pop(entity_id, None)
+            dev_mode = self.control_mode_for(entity_id)
+            if dev_mode == CONTROL_MODE_DIRECT:
+                dev_enabled = direct_enabled
+            elif dev_mode == CONTROL_MODE_PWM:
+                dev_enabled = pwm_output and not self.window_blocked
+            else:
+                dev_enabled = two_point_output and not self.window_blocked
             try:
                 await self._sync_trv(
                     entity_id,
                     device,
                     state,
-                    output and not self.window_blocked,
+                    dev_enabled,
                     maintenance=maintenance,
                 )
                 if (
@@ -615,8 +712,15 @@ class ThermoControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             state = self._state(entity_id)
             if state is None:
                 continue
+            dev_mode = self.control_mode_for(entity_id)
+            if dev_mode == CONTROL_MODE_DIRECT:
+                dev_enabled = (
+                    self.mode == HVACMode.HEAT and not self.window_blocked and self.heat_permitted
+                )
+            else:
+                dev_enabled = self._normal_output
             try:
-                await self._sync_trv(entity_id, device, state, self._normal_output)
+                await self._sync_trv(entity_id, device, state, dev_enabled)
             except (HomeAssistantError, TimeoutError, ValueError) as err:
                 self._errors[entity_id] = str(err)
                 _LOGGER.warning("Restoring %s after valve maintenance failed: %s", entity_id, err)

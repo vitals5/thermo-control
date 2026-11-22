@@ -12,6 +12,18 @@ CONF_POSITION_ENTITY = "position_entity"
 CONF_INTERNAL_SENSOR = "internal_sensor"
 CONF_CORRECTED = "temperature_is_calibrated"
 CONF_REGULATED_MODE = "regulated_mode"
+CONF_CONTROL_MODE = "control_mode"
+CONTROL_MODE_ROOM = "room"
+CONTROL_MODE_DIRECT = "direct"
+CONTROL_MODE_TWO_POINT = "two_point"
+CONTROL_MODE_PWM = "pwm"
+CONTROL_MODES = (CONTROL_MODE_DIRECT, CONTROL_MODE_TWO_POINT, CONTROL_MODE_PWM)
+DEVICE_CONTROL_MODES = (
+    CONTROL_MODE_ROOM,
+    CONTROL_MODE_DIRECT,
+    CONTROL_MODE_TWO_POINT,
+    CONTROL_MODE_PWM,
+)
 CONF_CALIBRATION_MIN = "calibration_min"
 CONF_CALIBRATION_MAX = "calibration_max"
 CONF_CALIBRATION_STEP = "calibration_step"
@@ -102,6 +114,7 @@ SYSTEM_DEFAULTS = {
 }
 DEFAULTS = {
     "heating_type": "radiator",
+    CONF_CONTROL_MODE: None,
     "floor": "",
     "group_id": None,
     "use_global_control": True,
@@ -121,6 +134,7 @@ DEFAULTS = {
 DEVICE_DEFAULTS = {
     CONF_CORRECTED: True,
     CONF_REGULATED_MODE: "heat",
+    CONF_CONTROL_MODE: CONTROL_MODE_ROOM,
     CONF_CALIBRATION_MIN: -9.0,
     CONF_CALIBRATION_MAX: 9.0,
     CONF_CALIBRATION_STEP: 0.5,

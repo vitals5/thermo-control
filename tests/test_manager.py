@@ -163,3 +163,30 @@ async def test_optional_sensor_still_validated_when_selected(manager, room, hass
     hass.states.async_set("sensor.room_invalid", "45", {"unit_of_measurement": "%"})
     with pytest.raises(ServiceValidationError):
         await manager.async_save_room({**room, "temperature_sensor": sensor}, 0)
+
+
+async def test_control_mode_room_and_device_persistence(manager, room, hass):
+    from custom_components.thermo_control.manager import RoomManager
+
+    config = {
+        **room,
+        "control_mode": "direct",
+        "devices": {
+            "climate.a": {"control_mode": "direct"},
+            "climate.b": {"control_mode": "room"},
+        },
+    }
+    room_id = await manager.async_save_room(config, 0)
+    assert manager.rooms[room_id]["control_mode"] == "direct"
+    assert manager.rooms[room_id]["devices"]["climate.a"]["control_mode"] == "direct"
+    assert manager.rooms[room_id]["devices"]["climate.b"]["control_mode"] == "room"
+
+    coord = manager.entities[room_id].coordinator
+    assert coord.control_mode_for("climate.a") == "direct"
+    assert coord.control_mode_for("climate.b") == "direct"
+
+    # Verify persistence after reload
+    reloaded = RoomManager(hass)
+    await reloaded.async_initialize()
+    assert reloaded.rooms[room_id]["control_mode"] == "direct"
+    assert reloaded.rooms[room_id]["devices"]["climate.a"]["control_mode"] == "direct"

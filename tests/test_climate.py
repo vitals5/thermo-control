@@ -27,6 +27,7 @@ async def test_climate_services(coordinator):
     await climate.async_turn_off()
     assert climate.hvac_mode == HVACMode.OFF
     assert climate.extra_state_attributes["valve_position"] == 40
+    assert climate.extra_state_attributes["control_mode"] == "direct"
     assert climate.current_temperature == 20
     assert climate.min_temp == 5
     assert climate.max_temp == 30

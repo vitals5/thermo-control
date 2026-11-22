@@ -941,14 +941,15 @@ class ThermoControlPanel extends HTMLElement {
         [hidden]{display:none!important}
         @media(max-width:650px){main{padding:8px 8px 24px}.toolbar{padding:8px 12px;gap:8px}.toolbar strong{font-size:18px}.version-label{display:none}.version{font-size:11px}.intro{margin-bottom:6px}.intro .eyebrow{display:none}.intro h1{font-size:16px;margin:2px 0 2px}.intro p{display:none}.empty{padding:24px 16px;border-radius:12px}.empty h2{margin:10px 0 6px;font-size:16px}.empty-symbol{font-size:28px}.empty button{margin-top:14px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr;gap:10px}dialog{width:calc(100% - 16px);border-radius:14px}.dialog-header{padding:12px 14px}.dialog-header h2{font-size:16px}.dialog-header p{font-size:11px;margin-top:2px}.dialog-body{padding:12px 14px}.dialog-footer{padding:12px 14px;gap:8px}.wide{grid-column:auto}label{gap:4px;font-size:12px}input,select{min-height:38px;padding:8px 10px;font-size:13px;border-radius:8px}}
       </style>
-      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.8.1</span></header>
+      <header class="toolbar"><button class="brand" type="button" aria-label="Seitenleiste öffnen" title="Seitenleiste öffnen"><svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="58" fill="#287757"/><g fill="none" stroke-linecap="round" stroke-width="17"><path d="M65 181 C43 156 80 142 65 115 C52 94 56 80 65 64" stroke="#fff"/><path d="M128 188 C99 160 148 143 128 109 C111 82 120 67 128 46" stroke="#eda56d"/><path d="M191 181 C169 156 206 142 191 115 C178 94 182 80 191 64" stroke="#fff"/><path d="M58 219 H198" stroke="#fff"/></g></svg></button><button class="back" type="button" aria-label="Zurück zum Dashboard" title="Zurück zum Dashboard" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20z"/></svg></button><strong>Thermo Control</strong><span class="version"><span class="version-label">Raumregelung · </span>2.8.2</span></header>
       <main><section class="intro"><div><div class="eyebrow">Temperaturen im Blick</div><h1>Deine Räume</h1><p>Heizung steuern und jeden Raum passend konfigurieren.</p></div></section>
       <div id="error" class="error" role="alert"></div><section class="rooms-grid" id="rooms" aria-label="Räume"></section><div id="empty" class="empty" hidden><div class="empty-symbol" aria-hidden="true">♨</div><h2>Hier beginnt deine Raumregelung</h2><p>Verbinde Thermostate mit deinem ersten Raum. Ein externer Temperatursensor ist optional.</p><button class="primary" id="first-room">Ersten Raum anlegen</button></div><div class="footer"><span class="live"></span><span id="connection">Verbindung wird hergestellt …</span></div></main>
       <dialog id="editor" aria-labelledby="editor-title"><form id="room-form"><div class="dialog-header"><div><h2 id="editor-title">Raum hinzufügen</h2><p>Sensoren, Thermostate und Regelung für diesen Raum.</p></div><button type="button" id="close-editor" aria-label="Schließen">✕</button></div><div class="dialog-body"><div class="error" id="form-error" role="alert"></div><div class="fields">
         <label class="wide">Raumname<input name="name" required maxlength="100" placeholder="z. B. Wohnzimmer"></label>
         <label>Etage / Zone<input name="floor" maxlength="100" placeholder="z. B. Erdgeschoss"></label>
         <label>Gruppe<select name="group_id"><option value="">Keine Gruppe</option></select></label>
-        <label>Heizungstyp<select name="heating_type"><option value="radiator">Heizkörper / eigene Thermostatregelung</option><option value="floor">Fußbodenheizung · vorausschauend / TPI</option></select></label>
+        <label>Heizungstyp<select name="heating_type"><option value="radiator">Heizkörper</option><option value="floor">Fußbodenheizung · vorausschauend / TPI</option></select></label>
+        <label>Regelungsmodus<select id="room-control-mode" name="control_mode"><option value="direct">Thermostat regelt selbst (nur Zieltemperatur)</option><option value="two_point">Zweipunktregelung (Thermo Control Ein/Aus)</option><option value="pwm">Pulsweitenmodulation (TPI / PWM-Taktung)</option></select></label>
         <label class="checkbox"><input name="use_global_control" type="checkbox"><span>Globale FBH-Parameter verwenden (Gruppenparameter haben Vorrang)</span></label>
         <label class="checkbox wide"><input name="valve_maintenance" type="checkbox"><span>Am täglichen Ventil-Wartungszyklus teilnehmen</span></label>
         <label class="checkbox wide"><input name="use_global_calibration" type="checkbox"><span>Globales Kalibrierungsintervall verwenden</span></label>
@@ -1242,10 +1243,11 @@ class ThermoControlPanel extends HTMLElement {
     const root = this.shadowRoot, form = root.querySelector("#room-form");
     root.querySelector("#form-error").textContent = "";
     root.querySelector("#editor-title").textContent = room ? "Raum konfigurieren" : "Raum hinzufügen";
-    this._draft = { ...CONTROL_VALUES, heating_type: "radiator", floor: "", group_id: null, use_global_control: true, use_global_calibration: false, ...this._draft };
+    this._draft = { ...CONTROL_VALUES, heating_type: "radiator", control_mode: "direct", floor: "", group_id: null, use_global_control: true, use_global_calibration: false, ...this._draft };
     form.elements.name.value = this._draft.name;
     form.elements.floor.value = this._draft.floor;
     form.elements.heating_type.value = this._draft.heating_type;
+    root.querySelector("#room-control-mode").value = this._draft.control_mode || (this._draft.heating_type === "floor" ? "pwm" : "direct");
     form.elements.use_global_control.checked = this._draft.use_global_control;
     form.elements.use_global_calibration.checked = this._draft.use_global_calibration;
     form.elements.valve_maintenance.checked = this._draft.valve_maintenance !== false;
@@ -1278,6 +1280,15 @@ class ThermoControlPanel extends HTMLElement {
         const picker = document.createElement("thermo-control-entity-picker");
         this._configurePicker(picker, key, title, domain, device[key] || "", { temperatureOnly: key === "internal_sensor", emptyLabel: "Automatische Erkennung / keine Zuordnung" }); fields.append(picker);
       }
+      const modeLabel = create("label", "Regelungsmodus für dieses Thermostat", "wide"), modeSelect = document.createElement("select");
+      modeSelect.name = "control_mode";
+      for (const [val, text] of [["room", "Einstellung des Raums übernehmen"], ["direct", "Thermostat regelt selbst (nur Zieltemperatur)"], ["two_point", "Zweipunktregelung (Thermo Control Ein/Aus)"], ["pwm", "Pulsweitenmodulation (TPI / PWM-Taktung)"]]) {
+        const opt = document.createElement("option"); opt.value = val; opt.textContent = text; modeSelect.append(opt);
+      }
+      modeSelect.value = device.control_mode || "room";
+      modeLabel.append(modeSelect);
+      fields.append(modeLabel);
+      fields.append(create("p", "Direkte Thermostatregelung sendet nur die Zieltemperatur an das Thermostat. Das Gerät regelt die Ventilöffnung autonom ohne PWM- oder Ein/Aus-Taktung.", "help wide"));
       fields.append(create("p", "Externe Regelung verwendet Heizen (heat). Auto folgt dem Gerätezeitplan und wird in der Übersicht oder am Thermostat gewählt.", "help wide"));
       const topicLabel = create("label", "MQTT-Topic (alternativ zur Number-Entität)", "wide"), topic = document.createElement("input"); topic.name = "calibration_topic"; topic.value = device.calibration_topic || ""; topic.placeholder = "zigbee2mqtt/wohnzimmer/set/local_temperature_calibration"; topicLabel.append(topic); fields.append(topicLabel);
       const numeric = create("div", undefined, "fields wide"); this._numberFields(numeric, DEVICE_NUMBERS, device); fields.append(numeric);
@@ -1323,7 +1334,7 @@ class ThermoControlPanel extends HTMLElement {
     }
     this._readDevices();
     const config = { ...this._draft, name: form.elements.name.value.trim(), trvs: this._selectedTrvs(), temperature_sensor: root.querySelector('[name="temperature_sensor"]').value || null, window_sensors: root.querySelector('[name="window_sensors"]').value };
-    Object.assign(config, { floor: form.elements.floor.value.trim(), group_id: form.elements.group_id.value || null, heating_type: form.elements.heating_type.value, use_global_control: form.elements.use_global_control.checked, use_global_calibration: form.elements.use_global_calibration.checked, valve_maintenance: form.elements.valve_maintenance.checked });
+    Object.assign(config, { floor: form.elements.floor.value.trim(), group_id: form.elements.group_id.value || null, heating_type: form.elements.heating_type.value, control_mode: root.querySelector("#room-control-mode").value, use_global_control: form.elements.use_global_control.checked, use_global_calibration: form.elements.use_global_calibration.checked, valve_maintenance: form.elements.valve_maintenance.checked });
     config.devices = Object.fromEntries(config.trvs.map((id) => [id, this._draft.devices[id]]));
     for (const [name] of NUMBERS) config[name] = Number(form.elements[name].value);
     const message = { type: "thermo_control/save_room", config, revision: this._editRevision };
@@ -1620,7 +1631,7 @@ class ThermoControlPanel extends HTMLElement {
     const body = this.shadowRoot.querySelector("#assignment-rows"); body.replaceChildren();
     for (const room of this._data.rooms) {
       const row = create("tr"), name = create("td"); name.append(create("strong", room.config.name), create("div", room.config.trvs.map((id) => this._hass.states[id]?.attributes.friendly_name || id).join(", "), "help")); row.append(name, create("td", room.config.floor || "—"));
-      const cell = create("td"), select = create("select"); select.setAttribute("aria-label", `${room.config.name}: Gruppe`); this._groupOptions(select, room.config.group_id); cell.append(select); row.append(cell, create("td", room.config.heating_type === "floor" ? "FBH / TPI" : "Thermostat"));
+      const cell = create("td"), select = create("select"); select.setAttribute("aria-label", `${room.config.name}: Gruppe`); this._groupOptions(select, room.config.group_id); cell.append(select); row.append(cell, create("td", room.config.control_mode === "direct" ? "Thermostat (selbstregelnd)" : (room.config.heating_type === "floor" || room.config.control_mode === "pwm" ? "FBH / TPI" : "Zweipunkt")));
       select.onchange = async () => { select.disabled = true; try { await this._hass.callWS({ type: "thermo_control/save_room", config: { ...room.config, group_id: select.value || null }, room_id: room.id, revision: this._data.revision }); } catch (error) { this._error(this._message(error)); select.value = room.config.group_id || ""; } finally { select.disabled = false; } };
       const edit = create("button", "Raum bearbeiten"); edit.onclick = () => this._openEditor(room); const editCell = create("td"); editCell.append(edit); row.append(editCell); body.append(row);
     }

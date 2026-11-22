@@ -1879,3 +1879,23 @@ test("manual DHW boost can be triggered and shows active badge until completed",
   expect(cancelMsg.enable).toBe(false);
 });
 
+test("room and device control mode can be configured and persisted", async ({ page }) => {
+  await mount(page, true);
+  await page.getByRole("tab", { name: "Übersicht", exact: true }).click();
+  await page.getByRole("button", { name: "Konfigurieren", exact: true }).click();
+
+  const roomControlSelect = page.locator("#room-control-mode");
+  await expect(roomControlSelect).toBeVisible();
+  await roomControlSelect.selectOption("direct");
+
+  const devControlSelect = page.locator('.device select[name="control_mode"]');
+  await expect(devControlSelect).toBeVisible();
+  await devControlSelect.selectOption("direct");
+
+  await page.getByRole("button", { name: "Raum speichern", exact: true }).click();
+  const room = await page.evaluate(() => window.messages.find((message) => message.type.endsWith("save_room")));
+  expect(room.config.control_mode).toBe("direct");
+  expect(room.config.devices["climate.trv"].control_mode).toBe("direct");
+});
+
+

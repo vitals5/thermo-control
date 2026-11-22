@@ -389,3 +389,96 @@ async def test_configured_external_sensor_never_falls_back(coordinator, hass, se
     assert coordinator.data["temperature"] is None
     assert not coordinator.data["available"]
     assert not [call for call in service_calls if call[0] in ("number", "mqtt")]
+
+
+async def test_direct_control_mode_only_writes_target_without_pwm(coordinator, hass, service_calls):
+    # Enable direct control mode: thermostat regulates itself, no PWM or two-point shutoff
+    coordinator.config["control_mode"] = "direct"
+    hass.states.async_set("sensor.room", 20, {"unit_of_measurement": "°C"})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT, temperature=21)
+
+    targets = {
+        data["entity_id"]: data["temperature"]
+        for _, service, data in service_calls
+        if service == "set_temperature"
+    }
+    assert targets == {"climate.a": 21, "climate.b": 21}
+    service_calls.clear()
+
+    # Room temperature rises above target + tolerance (e.g. 23 °C > 21.3 °C)
+    hass.states.async_set("sensor.room", 23, {"unit_of_measurement": "°C"})
+    await coordinator._tick()
+
+    # In direct mode, TRVs MUST NOT be dropped to frost temperature (5 °C)!
+    # Target stays at 21 °C and no frost commands are sent
+    frost_calls = [
+        data
+        for _, service, data in service_calls
+        if service == "set_temperature" and data.get("temperature") == 5
+    ]
+    assert not frost_calls
+    assert coordinator.control_mode_for() == "direct"
+    assert coordinator.data["control_mode"] == "direct"
+
+
+async def test_direct_control_mode_per_device_override(coordinator, hass, service_calls):
+    # Room is configured for two-point control, but climate.b is set to direct mode
+    coordinator.config["control_mode"] = "two_point"
+    coordinator.devices["climate.b"]["control_mode"] = "direct"
+    coordinator.devices["climate.a"]["control_mode"] = "room"  # inherits two_point
+
+    assert coordinator.control_mode_for("climate.a") == "two_point"
+    assert coordinator.control_mode_for("climate.b") == "direct"
+
+    hass.states.async_set("sensor.room", 20, {"unit_of_measurement": "°C"})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT, temperature=21)
+    service_calls.clear()
+
+    # Room temperature rises to 23 °C (above target + tolerance)
+    hass.states.async_set("sensor.room", 23, {"unit_of_measurement": "°C"})
+    await coordinator._tick()
+
+    # climate.a (two_point) must be dropped to 5 °C frost,
+    # but climate.b (direct) must NOT be dropped to 5 °C!
+    a_calls = [
+        data["temperature"]
+        for _, service, data in service_calls
+        if service == "set_temperature" and data.get("entity_id") == "climate.a"
+    ]
+    b_calls = [
+        data["temperature"]
+        for _, service, data in service_calls
+        if service == "set_temperature" and data.get("entity_id") == "climate.b"
+    ]
+    assert 5 in a_calls
+    assert 5 not in b_calls
+
+
+async def test_direct_control_mode_window_and_off(coordinator, hass, service_calls):
+    coordinator.config["control_mode"] = "direct"
+    hass.states.async_set("sensor.room", 20, {"unit_of_measurement": "°C"})
+    await coordinator.async_set_intent(mode=HVACMode.HEAT, temperature=22)
+    service_calls.clear()
+
+    # When window opens, direct mode still protects by setting TRVs to frost
+    hass.states.async_set("binary_sensor.window", "on")
+    await coordinator._tick()
+    assert coordinator.window_blocked
+    window_frost_calls = [
+        data["entity_id"]
+        for _, service, data in service_calls
+        if service == "set_temperature" and data.get("temperature") == 5
+    ]
+    assert set(window_frost_calls) == {"climate.a", "climate.b"}
+    service_calls.clear()
+
+    # When window closes, target temperature is restored
+    hass.states.async_set("binary_sensor.window", "off")
+    await coordinator._tick()
+    assert not coordinator.window_blocked
+    restore_calls = {
+        data["entity_id"]: data["temperature"]
+        for _, service, data in service_calls
+        if service == "set_temperature"
+    }
+    assert restore_calls == {"climate.a": 22, "climate.b": 22}

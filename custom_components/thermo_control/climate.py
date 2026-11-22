@@ -169,6 +169,7 @@ class ThermoControlClimate(
             "native_auto": self.coordinator.native_auto,
             "auto_devices": self.coordinator.auto_devices,
             "heating_type": self.coordinator.config["heating_type"],
+            "control_mode": self.coordinator.control_mode_for(),
             "floor": self.coordinator.config["floor"],
             "group_id": self.coordinator.config["group_id"],
             **{
