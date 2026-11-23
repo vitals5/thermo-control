@@ -69,11 +69,14 @@ DEVICE_SCHEMA = vol.Schema(
         vol.Optional(CONF_CALIBRATION_TOPIC, default=""): str,
         vol.Optional(CONF_CORRECTED, default=True): bool,
         vol.Optional(CONF_REGULATED_MODE): vol.In(("heat", "auto")),
-        vol.Optional(CONF_CONTROL_MODE, default=CONTROL_MODE_ROOM): vol.In(DEVICE_CONTROL_MODES),
+        vol.Optional(CONF_CONTROL_MODE, default=CONTROL_MODE_ROOM): vol.Any(
+            None, "", vol.In(DEVICE_CONTROL_MODES)
+        ),
         vol.Optional(CONF_CALIBRATION_MIN, default=-9): _range(-10, 0),
         vol.Optional(CONF_CALIBRATION_MAX, default=9): _range(0, 10),
         vol.Optional(CONF_CALIBRATION_STEP, default=0.5): _range(0.1, 1),
-    }
+    },
+    extra=vol.REMOVE_EXTRA,
 )
 CONTROL_FIELDS = {
     "trend_window": _range(30, 60),
@@ -90,7 +93,9 @@ CONTROL_SCHEMA = vol.Schema({vol.Required(key): rule for key, rule in CONTROL_FI
 ROOM_SCHEMA = vol.Schema(
     {
         vol.Optional("heating_type", default="radiator"): vol.In(("radiator", "floor")),
-        vol.Optional(CONF_CONTROL_MODE, default=None): vol.Any(None, vol.In(CONTROL_MODES)),
+        vol.Optional(CONF_CONTROL_MODE, default=None): vol.Any(
+            None, "", vol.In(CONTROL_MODES), vol.In(DEVICE_CONTROL_MODES)
+        ),
         vol.Optional("floor", default=""): vol.All(str, vol.Length(max=100)),
         vol.Optional("group_id", default=None): vol.Any(None, vol.All(str, vol.Length(max=64))),
         vol.Optional("use_global_control", default=True): bool,
@@ -116,7 +121,8 @@ ROOM_SCHEMA = vol.Schema(
             vol.Optional(f"preset_{name}", default=DEFAULTS[f"preset_{name}"]): _range(5, 35)
             for name in PRESETS
         },
-    }
+    },
+    extra=vol.REMOVE_EXTRA,
 )
 
 
@@ -239,6 +245,11 @@ def validate_room(
     except vol.Invalid as err:
         raise ServiceValidationError(f"Ungültige Raumkonfiguration: {err}") from err
     result["name"] = result["name"].strip()
+    result[CONF_CONTROL_MODE] = (
+        None
+        if result.get(CONF_CONTROL_MODE) in (None, "", CONTROL_MODE_ROOM)
+        else result[CONF_CONTROL_MODE]
+    )
     try:
         validate_control({key: result[key] for key in CONTROL_FIELDS})
     except vol.Invalid as err:
@@ -290,6 +301,8 @@ def validate_room(
             device[CONF_REGULATED_MODE] = (
                 "auto" if "auto" in modes and "heat" not in modes else "heat"
             )
+        if not device.get(CONF_CONTROL_MODE):
+            device[CONF_CONTROL_MODE] = CONTROL_MODE_ROOM
         if (
             state
             and (modes := state.attributes.get("hvac_modes"))

@@ -5,9 +5,15 @@
   <img src="custom_components/thermo_control/brand/logo@2x.png" alt="Thermo Control" width="330">
 </picture>
 
-Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.2`.
+Asynchrone Home-Assistant-Integration für die zentrale Raumregelung mit Heizkörper- oder Wandthermostaten und einem optionalen externen Temperatursensor. Domain: `thermo_control`, Version: `2.8.3`.
 
-Neu in **2.8.2**:
+Neu in **2.8.3**:
+- **Gehärtete Schema-Validierung für Raum- und Gerätekonfigurationen**:
+  - `ROOM_SCHEMA` und `DEVICE_SCHEMA` ignorieren nun unerkannte Zusatzschlüssel (`extra=vol.REMOVE_EXTRA`), sodass Versionsunterschiede zwischen aktualisiertem Frontend-Bundle und noch nicht neu gestartetem Backend das Speichern nicht mehr blockieren.
+  - Fehlertolerante Normalisierung für `control_mode`: Leere Zeichenfolgen `""`, `None` oder `"room"` werden automatisch abgefangen und fallen sauber auf den Standard des Raum-Heizungstyps zurück.
+  - Behebt die Fehlermeldung `Ungültige Raumkonfiguration: not a valid option at 'control_mode'`.
+
+Seit **2.8.2**:
 - **Autonome Thermostatregelung ohne PWM (Direkt-Modus)**:
   - Neuer Regelungsmodus: **Thermostat regelt selbst (nur Zieltemperatur)** (`direct`), neben **Zweipunktregelung** (`two_point`) und **Pulsweitenmodulation (TPI/PWM)** (`pwm`).
   - Einstellbar sowohl raumweit im Raum-Editor als auch feingranular pro Thermostat unter *Thermostate und Kalibrierung* (mit Option zur Übernahme des Raummodus).
@@ -119,7 +125,7 @@ Die Luxtronik-Anbindung veröffentlicht **Wärmebedarf** und **Freigegebener Wä
 
 Die eigenen Brand-Grafiken liegen unter `custom_components/thermo_control/brand/`: Icon (256/512 px) und Logo (655×256 / 1310×512 px), jeweils als transparente PNGs für helle und dunkle Oberflächen. Home Assistant lädt sie lokal für die Integrationsübersicht. SVG-Quellen stehen in `assets/brand/`; `node scripts/build-brands.cjs` erzeugt mit installiertem Playwright/Chromium und FreeSans die PNGs erneut. [HA-Brands-Dokumentation](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
 
-[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.2` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
+[Releases mit Installationspaket und Prüfsummen](https://github.com/vitals5/thermo-control/releases). `python scripts/build-release.py --tag v2.8.3` baut die Pakete lokal. Ein Versions-Tag startet auf GitHub zunächst die bestehenden Prüfungen und veröffentlicht anschließend das Release.
 
 ## Installation und Seitenleisten-Panel
 

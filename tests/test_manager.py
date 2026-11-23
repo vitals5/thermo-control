@@ -190,3 +190,21 @@ async def test_control_mode_room_and_device_persistence(manager, room, hass):
     await reloaded.async_initialize()
     assert reloaded.rooms[room_id]["control_mode"] == "direct"
     assert reloaded.rooms[room_id]["devices"]["climate.a"]["control_mode"] == "direct"
+
+
+async def test_control_mode_empty_or_room_fallback_and_remove_extra(manager, room, hass):
+    config = {
+        **room,
+        "control_mode": "",
+        "extra_unknown_key": "should_be_stripped",
+        "devices": {
+            "climate.a": {"control_mode": None, "device_extra": 123},
+            "climate.b": {"control_mode": ""},
+        },
+    }
+    room_id = await manager.async_save_room(config, 0)
+    assert manager.rooms[room_id]["control_mode"] is None
+    assert "extra_unknown_key" not in manager.rooms[room_id]
+    assert manager.rooms[room_id]["devices"]["climate.a"]["control_mode"] == "room"
+    assert "device_extra" not in manager.rooms[room_id]["devices"]["climate.a"]
+    assert manager.rooms[room_id]["devices"]["climate.b"]["control_mode"] == "room"
